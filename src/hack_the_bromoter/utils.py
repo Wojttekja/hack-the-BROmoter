@@ -18,8 +18,8 @@ __all__ = [
     "PROMOTERS_CSV",
     "ROOT",
     "SEQ_COL",
+    "convert_promoters",
     "read_dataframe",
-    "read_promoters",
     "save_dataframe",
     "sequence_map",
 ]
@@ -104,12 +104,30 @@ def save_dataframe(df: pd.DataFrame, path: str | Path, **kwargs: Any) -> Path:
         raise ValueError(f"don't know how to write {path.name!r}")
     return path
 
+import csv
+import os
 
-def read_promoters(path: str | Path = PROMOTERS_CSV) -> pd.DataFrame:
-    """The 100 natural promoters, with ``nazwa``/``sekwencja`` renamed to
-    ``id``/``sequence``. Other columns (gatunek, dlugosc, N, ...) are kept."""
-    df = read_dataframe(path)
-    return df.rename(columns=RENAME)
+
+def convert_promoters(input_path: str, output_path: str = "sequences.csv") -> int:
+    """Convert the source promoter CSV into `id;gen;sekwencja` format.
+
+    `gen` is a placeholder set to 0 for every row.
+    Returns the number of rows written.
+    """
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+
+    with open(input_path, encoding="utf-8") as src, \
+         open(output_path, "w", encoding="utf-8", newline="") as dst:
+        reader = csv.DictReader(src, delimiter=";")
+        writer = csv.writer(dst, delimiter=";")
+        writer.writerow(["id", "sequence", "gen", "top10", "pozycja_top100", "points"])
+
+        count = 0
+        for row in reader:
+            count += 1
+            writer.writerow([count, row["sekwencja"], 0, 0, 0, 0])
+
+    return count
 
 
 def sequence_map(
