@@ -173,19 +173,16 @@ def record(population, generation: int, scores: dict | None) -> pd.DataFrame:
     log(f"backlog saved: {len(results)} rows -> {SEQUENCES_BACKLOG}", 1)
     return results
 
-def wild_enrichment(pool: pd.DataFrame, k=1):
+def wild_enrichment(pool: pd.DataFrame, k=1) -> pd.DataFrame:
     wild_guy = wild_sequence()
+    next_id = pool[ID_COL].max() + 1
 
     wild_df = pd.DataFrame({
-        "id": pool.shape[0]+1,
-        "sequence": wild_guy,
-        "gen": 0,
-        "top10": 0,
-        "pozycja_top100": 0,
-        "points": 0
+        ID_COL: [next_id],
+        SEQ_COL: [wild_guy],
     })
 
-    pool.append(wild_df)
+    return pd.concat([pool, wild_df], ignore_index=True)
 
 def optimize(population, judge, generations=GENERATIONS, keep=POPULATION):
     """The loop: propose candidates, rank them with the judge, keep the best.
@@ -198,7 +195,7 @@ def optimize(population, judge, generations=GENERATIONS, keep=POPULATION):
             f"{len(population)} sequences in ===")
 
         # wild enrichment hihi
-        wild_enrichment(population, 1)
+        population = wild_enrichment(population, 1)
 
         # 1. propose new candidates from the current survivors
         candidates = evolve(population, k=200) 
