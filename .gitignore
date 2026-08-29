@@ -8,3 +8,13 @@ wheels/
 
 # Virtual environments
 .venv
+
+raw/
+
+# Run outputs (caches, checkpoints, event logs, generated figures/reports)
+runs/
+runs_*/
+probe_out/
+figures/
+*_out/
+.pytest_cache/
