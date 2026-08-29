@@ -54,6 +54,8 @@ from hack_the_bromoter.utils import ID_COL, SEQ_COL
 __all__ = [
     "allocate_children",
     "breed",
+    "dedupe_by_distance",
+    "diversify_survivors",
     "evolve",
     "get_edits",
     "get_map",
@@ -109,6 +111,37 @@ def hamming(a: str, b: str) -> int:
     return sum(1 for x, y in zip(a, b) if x != y)
 
 
+def dedupe_by_distance(
+    ids: list[str],
+    sequences: dict[str, str],
+    min_distance: int,
+    limit: int | None = None,
+) -> list[str]:
+    """`ids`, best-first, minus anything within `min_distance` of an earlier one.
+
+    Walks the ranking greedily: a candidate is kept only if its sequence
+    differs by at least `min_distance` substitutions from every
+    representative already kept. That collapses each cluster of
+    near-identical sequences down to its single best-ranked member, which is
+    the general move behind both `select_top` (diverse parents) and
+    `diversify_survivors` (a diverse next generation).
+
+    `limit` stops once that many ids have been kept, leaving the rest of
+    `ids` unexamined -- pass it when you only need the first N diverse picks
+    (cheaper than filtering the whole ranking and slicing after).
+    """
+    kept: list[str] = []
+    reps: list[str] = []
+    for candidate in ids:
+        if limit is not None and len(kept) >= limit:
+            break
+        sequence = sequences[candidate]
+        if all(hamming(sequence, rep) >= min_distance for rep in reps):
+            kept.append(candidate)
+            reps.append(sequence)
+    return kept
+
+
 def select_top(
     df: pd.DataFrame,
     fraction: float = 0.2,
@@ -127,17 +160,56 @@ def select_top(
     always at least one row wide when `df` is non-empty.
     """
     wanted = max(1, int(len(df) * fraction))
-    parents: list[dict[str, str]] = []
-    for _, row in df.iterrows():
-        if len(parents) >= wanted:
-            break
-        sequence = str(row[seq_col]).strip().upper()
-        if all(hamming(sequence, p[SEQ_COL]) >= min_distance for p in parents):
-            parents.append({ID_COL: str(row[id_col]), SEQ_COL: sequence})
+    ids = [str(i) for i in df[id_col]]
+    sequences = {str(i): str(s).strip().upper() for i, s in zip(df[id_col], df[seq_col])}
+    kept = dedupe_by_distance(ids, sequences, min_distance, limit=wanted)
 
-    _log(verbose, f"parents: {len(parents)} of {len(df)} "
+    _log(verbose, f"parents: {len(kept)} of {len(df)} "
                   f"(top {fraction:.0%}, min distance {min_distance})")
-    return pd.DataFrame(parents, columns=[ID_COL, SEQ_COL])
+    return pd.DataFrame(
+        [{ID_COL: i, SEQ_COL: sequences[i]} for i in kept],
+        columns=[ID_COL, SEQ_COL],
+    )
+
+
+def diversify_survivors(
+    ranked_ids: list[str],
+    sequences: dict[str, str],
+    keep: int,
+    min_distance: int,
+    verbose: bool = True,
+) -> list[str]:
+    """`ranked_ids`, best-first, collapsed to one pick per similarity cluster.
+
+    Same move as `select_top`, applied where it was missing: choosing next
+    generation's survivors. `bucket_sort_sequences` ranks best-first but has
+    no notion of similarity, so slicing its output to `ranked_ids[:keep]`
+    (as `optimize()` used to) can fill most of `keep` with near-clones of the
+    same elite, starving every other lineage. This walks the ranking and
+    keeps an id only if it is at least `min_distance` substitutions from
+    every survivor already kept.
+
+    If the distance filter leaves fewer than `keep` (a small pool, or one
+    that is already diverse enough that everything clears the bar), the
+    remaining slots are backfilled with the next best-ranked ids regardless
+    of distance -- diversity is a tiebreaker among comparable candidates, not
+    a reason to shrink the population below `keep`.
+    """
+    kept = dedupe_by_distance(ranked_ids, sequences, min_distance, limit=keep)
+    collapsed = 0
+    if len(kept) < keep:
+        picked = set(kept)
+        for candidate in ranked_ids:
+            if len(kept) >= keep:
+                break
+            if candidate not in picked:
+                kept.append(candidate)
+                picked.add(candidate)
+                collapsed += 1
+
+    _log(verbose, f"survivors: {len(kept)} kept, {collapsed} backfilled "
+                  f"after collapsing near-duplicates (min distance {min_distance})")
+    return kept
 
 
 # --------------------------------------------------------------------------

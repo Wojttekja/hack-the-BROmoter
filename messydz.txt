@@ -1,0 +1,139 @@
+ ▐▛███▛█   Claude Code v2.1.251
+▝▜██████▀  Opus 5 · API Usage Billing
+  ▝▝ ▝▝    ~/Documents/hack-the-BROmoter
+
+
+❯ Analyze our optimizer loop. We are good for now, second place overall in      
+  ranking, first place in top 100, third in top 10. My friends are working with 
+  biological filters, and ingesting wildtype every generation to population,    
+  what can we do more? Rules are in @HackThePromotor/Hackathon.ipynb            
+  ⎿  Read HackThePromotor/Hackathon.ipynb (26 cells)
+
+⏺ I'll look at your current optimizer before suggesting anything.
+
+  Searched for 3 patterns, read 5 files, listed 1 directory, ran 6 shell commands (ctrl+o to expand)
+
+⏺ I read main.py, judge.py, navigator.py, api.py, plus run.log and
+  sequences.csv. Before the strategy ideas: your optimizer loop is not currently
+  optimizing. Three concrete findings, then what to add.
+
+  1. The judge cache is poisoned by id reuse (this is the big one)
+
+  Judge._cache is keyed by (id_a, id_b) — judge.py:113. But breed() regenerates
+  ids every generation: the elites are always named elite_01…elite_20, and their
+  children are always elite_03_007 etc. So the same id means a different 
+  sequence each generation.
+
+  ids reused for DIFFERENT sequences: 314 of 947
+  elite_02  gen 0: AATGAAAGATGAGCTAAGAGATTATGGATA…
+            gen 1: TGTTGTATTTTTTTGTTCTATGGAGCTTAA…   ← same id, different seq
+
+  main.py:203 does judge.sequences.update(...), which remaps id→sequence, but
+  the cache keeps the old verdict. From generation 2 onward, essentially the
+  entire top of every tournament — the elite_* pairs, exactly the comparisons
+  that decide who survives — is served from stale verdicts about sequences that
+  no longer exist. Fix: key the cache on the sequence strings (or a hash), not 
+  the id. One-line change, and it also makes the cache work across generations,
+  which is what you want.
+
+  2. 94% of your comparisons are ties, so the ranking is input order
+
+  gen 0: 1398 calls | 492 ties
+  gen 1: 1400 calls | 622 ties
+  gen 2: 1396 calls | 655 ties   → 655/698 pairs = 94% ties, and rising
+
+  The population has converged into a blob the Judge cannot resolve. In
+  bucket_sort_sequences, a tie gives both sides 0.5, so nearly everyone ends the
+  Swiss with score ≈ rounds/2, and sorted(ids, key=lambda i: -score[i]) is a
+  stable sort — ties keep input order, and the input order is pool = candidates
+  with the elites first. The elites therefore re-elect themselves every
+  generation regardless of merit.
+
+  That, plus finding 1, fully explains points 18.0 on every single submission
+  across 11 generations.
+
+  3. You're using ~22% of your rate budget
+
+  RATE_PER_MIN = 540 in judge.py:47 is a global cap, but _KeyPool has 4 keys at
+  600/min each = 2400/min. The log confirms it: 1396 calls in 156 s = 537/min.
+  Set it to 540 * len(get_client().keys) and a generation goes from 156 s to ~35
+  s — 4.4× more search per hour, for free.
+
+  ---
+
+  What to actually add
+
+  a) Anchor ladder instead of within-population Swiss. This is the highest-value
+  change. The Judge can't separate neighbours, but it can separate distant
+  sequences. Fix a ladder of ~10 reference sequences spanning weak→strong (wild
+  type, a few weak naturals from Promotory.csv, your best-so-far), and score
+  each candidate by how far up the ladder it beats. 20 calls/candidate → at full
+  rate that's ~120 candidates/min. This gives you (i) a real scalar with
+  resolution, (ii) scores comparable across generations, which Swiss never gives
+  you, and (iii) it subsumes what your friends get from re-ingesting wildtype,
+  plus a number.
+
+  b) Fit Bradley–Terry over the whole comparison history. You've thrown away
+  thousands of verdicts. Keep every (winner, loser, tie) in a table, fit a
+  latent strength per sequence by logistic regression, ties as half-weight. Uses
+  all evidence instead of one generation's worth, and gives calibrated
+  uncertainty so you know which candidates are worth spending more calls on.
+
+  c) Split the two objectives — you're 1st in TOP100 and 3rd in TOP10. These
+  reward different files. TOP100 wants a uniformly-good 100; TOP10 wants 10
+  outliers. A moonshot only has to beat your current 10th best to lift TOP10, so
+  the risk is bounded and measurable: breed a high-variance reservoir
+  (level-0/L1 latent jumps, mutations=(10,40)), score it against the ladder, and
+  admit only the ones that clear your #10. Keep the other ~85 slots as the
+  consolidated best.
+
+  d) Escape the local optimum — your min_distance=8 is far too tight. Median
+  pairwise distance in the current population is 65, so a threshold of 8 filters
+  nothing; all 20 "diverse" parents are one lineage. Run an island model: 4–6
+  sub-populations seeded from different species in Promotory.csv (you have 19),
+  evolved independently with occasional migration. That's both your TOP10 upside
+  and your hedge against the blob.
+
+  e) Stop guessing what the model likes — measure it. ~20 judge calls per
+  experiment, and it's the best slide you'll have for the jury (50% of the
+  grade):
+  - GC-content sweep; homopolymer runs; does duplicating a 20 bp block help?
+  - Insert a consensus TATA at varying distances from the TSS — where does the
+    model want it?
+  - Does the model reward N? You're allowed 10%. Ns feed 0.25 to all four
+    channels. Probably penalised, but it's 20 calls to find out whether it's an
+    exploit or a trap.
+  - Cluster the high-wagaP positions from /nawigator/mapa — contiguous
+    high-weight blocks are the model's implied binding sites. Then
+    saturation-scan them (all 3 alternatives at each position, scored on the
+    ladder) instead of random point mutation. That converts your random walk
+    into actual gradient ascent.
+
+  f) Biological framing to match your friends' filters. Rather than hard
+  filters, make them operators: tandem-duplicate putative UAS/activator sites (a
+  well-established way to strengthen fungal promoters), keep a pyrimidine-rich
+  block near the TSS, remove upstream ATGs/uORFs, avoid cryptic poly-A signals.
+  For pks1 under biotic antagonism, light-response (BLR1/2) and stress/cAMP-PKA
+  regulated elements are the ones to name when the jury asks.
+
+  Order I'd do it in: 1 → 3 → a → c → e. Findings 1 and 3 are ~10 lines of code
+  and unblock everything else; without the cache fix, none of the rest will show
+  up in your score.
+
+  Want me to implement the cache-key fix and the anchor ladder, or write this up
+  as a shareable strategy page for the team?
+
+✻ Cooked for 2m 41s · done 4:49 PM
+
+❯ Ok, do the first changes                                                      
+  ⎿  You've hit your session limit · resets 6:30pm (Europe/Warsaw)
+
+✻ Cogitated for 0s · done 4:55 PM
+
+❯ Ok, do the first changes                                                      
+  ⎿  You've hit your session limit · resets 6:30pm (Europe/Warsaw)
+
+✻ Baked for 0s · done 4:56 PM
+
+❯ /usage-credits                                                                
+  ⎿  Login successful

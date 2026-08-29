@@ -50,11 +50,24 @@ from hack_the_bromoter.utils import (
     init_history
 )
 
-from hack_the_bromoter.navigator import evolve
+# ᠨᡳᠶᠠᠯᠮᠠ
+
+from hack_the_bromoter.navigator import diversify_survivors, evolve
 
 # How many candidates survive each generation.
 POPULATION = 100
 GENERATIONS = 10000
+
+# Minimum hamming distance between two survivors for both to count toward
+# `POPULATION` -- otherwise the top of the ranking (mostly siblings of the
+# same elite) fills every slot and the population converges into one
+# lineage. The old default of 8 filtered nothing: a diagnostic run measured
+# a median pairwise distance of ~65 in an already-converged population, so
+# 8 substitutions is noise, not a meaningful cluster boundary. Start here
+# and retune against the actual pairwise-distance spread of your own
+# population -- what counts as "too similar" depends on sequence length and
+# how far the population has already converged.
+SURVIVOR_MIN_DISTANCE = 24
 
 # /wgraj is capped at one upload per 5 minutes *per key*; a generation can
 # finish faster than that, so a submission that finds every key still cooling
@@ -173,19 +186,16 @@ def record(population, generation: int, scores: dict | None) -> pd.DataFrame:
     log(f"backlog saved: {len(results)} rows -> {SEQUENCES_BACKLOG}", 1)
     return results
 
-def wild_enrichment(pool: pd.DataFrame, k=1):
+def wild_enrichment(pool: pd.DataFrame, k=1) -> pd.DataFrame:
+    """Add `k` copies of the wild-type promoter to `pool` as extra candidates."""
     wild_guy = wild_sequence()
 
     wild_df = pd.DataFrame({
-        "id": pool.shape[0]+1,
-        "sequence": wild_guy,
-        "gen": 0,
-        "top10": 0,
-        "pozycja_top100": 0,
-        "points": 0
+        ID_COL: [f"wild_{number + 1:02d}" for number in range(k)],
+        SEQ_COL: [wild_guy] * k,
     })
 
-    pool.append(wild_df)
+    return pd.concat([pool, wild_df], ignore_index=True)
 
 def optimize(population, judge, generations=GENERATIONS, keep=POPULATION):
     """The loop: propose candidates, rank them with the judge, keep the best.
@@ -198,10 +208,10 @@ def optimize(population, judge, generations=GENERATIONS, keep=POPULATION):
             f"{len(population)} sequences in ===")
 
         # wild enrichment hihi
-        wild_enrichment(population, 1)
+        population = wild_enrichment(population, 1)
 
         # 1. propose new candidates from the current survivors
-        candidates = evolve(population, k=200) 
+        candidates = evolve(population, k=200, min_distance=SURVIVOR_MIN_DISTANCE)
         # candidates = population.iloc[:0]  # until propose() lands: no new blood
         log(f"proposed {len(candidates)} new candidates "
             f"(propose() is still a stub)", 1)
@@ -225,8 +235,14 @@ def optimize(population, judge, generations=GENERATIONS, keep=POPULATION):
             f" | {judge.ties - ties_before} ties", 1)
         log(f"top ids: {ranked_ids[:10]}", 1)
 
-        # 3. keep the top `keep` and go again
-        population = pool.set_index(ID_COL).loc[ranked_ids[:keep]].reset_index()
+        # 3. keep the top `keep`, collapsing near-duplicate clusters down to
+        #    their best-ranked member first so survivors span more than one
+        #    lineage -- see SURVIVOR_MIN_DISTANCE above.
+        survivor_ids = diversify_survivors(
+            ranked_ids, sequence_map(pool), keep=keep,
+            min_distance=SURVIVOR_MIN_DISTANCE,
+        )
+        population = pool.set_index(ID_COL).loc[survivor_ids].reset_index()
         log(f"generation {generation}: {len(population)} survivors "
             f"({judge.calls} judge calls spent in total)", 1)
 
