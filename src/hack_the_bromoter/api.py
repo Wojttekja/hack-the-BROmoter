@@ -363,19 +363,23 @@ class HyppeClient:
             payload["ziarno"] = ziarno
         return self.request("/nawigator/edycje", payload)
 
-    def wgraj(self, fasta: str) -> dict[str, Any]:
+    def wgraj(self, fasta: str, key_index: int | None = None) -> dict[str, Any]:
         """POST /wgraj -- submit a FASTA file for scoring. Once per 5 minutes.
 
         ``fasta`` is the whole file as one string (JSON body, not multipart).
         The answer reports the filtering stats (``filtrowanie``) and the score
         (``ocenionych``, ``pozycja_top10``, ``pozycja_top100``,
         ``punkty_razem``). Only the best submission counts for the ranking.
+
+        The cooldown is per key, so ``key_index`` pins the upload to one key
+        (``zgloszenie_mozliwe_za_s`` in ``/me`` says when a key is free again)
+        instead of spending whichever key the rotation hands out next.
         """
         if len(fasta) > MAX_FASTA_CHARS:
             raise ValueError(
                 f"FASTA has {len(fasta)} characters, the limit is {MAX_FASTA_CHARS}"
             )
-        return self.request("/wgraj", {"fasta": fasta})
+        return self.request("/wgraj", {"fasta": fasta}, key_index=key_index)
 
     def ranking(self) -> dict[str, Any]:
         """GET /ranking -- the scoreboard, points only. No limit."""
@@ -440,9 +444,9 @@ def nawigator_edycje(
     )
 
 
-def wgraj(fasta: str) -> dict[str, Any]:
+def wgraj(fasta: str, key_index: int | None = None) -> dict[str, Any]:
     """POST /wgraj -- see :meth:`HyppeClient.wgraj`."""
-    return get_client().wgraj(fasta)
+    return get_client().wgraj(fasta, key_index=key_index)
 
 
 def ranking() -> dict[str, Any]:

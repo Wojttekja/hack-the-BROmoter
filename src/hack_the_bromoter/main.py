@@ -11,10 +11,17 @@ built on it).
 
 from __future__ import annotations
 
+import time
+
+import pandas as pd
+
 from hack_the_bromoter.api import (
-    build_fasta,  # noqa: F401
+    ApiError,
+    build_fasta,
     check_sequence,  # noqa: F401
+    get_client,
     me,
+    me_all,
     nawigator_edycje,  # noqa: F401
     nawigator_mapa,  # noqa: F401
     ranking,  # noqa: F401
@@ -23,23 +30,28 @@ from hack_the_bromoter.api import (
 )
 from hack_the_bromoter.judge import (
     Judge,
-    bucket_sort_sequences,  # noqa: F401
+    bucket_sort_sequences,
     copeland_scores,  # noqa: F401
     sort_sequences,  # noqa: F401
 )
 from hack_the_bromoter.utils import (
-    ID_COL,  # noqa: F401
+    ID_COL,
     ROOT,  # noqa: F401
     SEQ_COL,  # noqa: F401
     read_dataframe,  # noqa: F401
     read_promoters,
     save_dataframe,  # noqa: F401
-    sequence_map,  # noqa: F401
+    sequence_map,
 )
 
 # How many candidates survive each generation.
 POPULATION = 20
 GENERATIONS = 5
+
+# /wgraj is capped at one upload per 5 minutes *per key*; a generation can
+# finish faster than that, so a submission that finds every key still cooling
+# down is skipped rather than waited out (pass wait=True to sit it out).
+UPLOAD_COOLDOWN_SLACK = 2.0
 
 
 def print_account() -> dict:
@@ -51,6 +63,47 @@ def print_account() -> dict:
     return account
 
 
+def submit(population, wait: bool = False) -> dict | None:
+    """Upload the current population to /wgraj and print what it scored.
+
+    Only the best submission of the day counts for the ranking, so sending
+    every generation is free -- the one cost is the 5 minute upload cooldown
+    of the key that gets spent. The cooldown is per key, so the upload goes
+    out on whichever key is free; when none is, the submission is skipped
+    (`wait=True` sleeps until the earliest one comes back instead) and the
+    function returns None.
+    """
+    fasta = build_fasta(sequence_map(population))
+    records = fasta.count(">")
+    if not records:
+        print("  submission skipped: nothing survived the FASTA filters")
+        return None
+
+    cooldowns = [account["zgloszenie_mozliwe_za_s"] for account in me_all()]
+    index = min(range(len(cooldowns)), key=cooldowns.__getitem__)
+    if cooldowns[index] > 0:
+        if not wait:
+            print(f"  submission skipped: every key is on the upload cooldown "
+                  f"({min(cooldowns):.0f} s left on the earliest)")
+            return None
+        print(f"  waiting {cooldowns[index]:.0f} s for key {index + 1} "
+              f"to come off the upload cooldown")
+        time.sleep(cooldowns[index] + UPLOAD_COOLDOWN_SLACK)
+
+    try:
+        answer = get_client().wgraj(fasta, key_index=index)
+    except ApiError as error:
+        print(f"  submission failed: {error}")
+        return None
+
+    print(f"  submitted {records} sequences on key {index + 1}:",
+          f"scored {answer['ocenionych']}",
+          f"| TOP10 {answer['pozycja_top10']}",
+          f"| TOP100 {answer['pozycja_top100']}",
+          f"| points {answer['punkty_razem']}")
+    return answer
+
+
 def optimize(population, judge, generations=GENERATIONS, keep=POPULATION):
     """The loop: propose candidates, rank them with the judge, keep the best.
 
@@ -60,6 +113,7 @@ def optimize(population, judge, generations=GENERATIONS, keep=POPULATION):
     for generation in range(generations):
         # 1. propose new candidates from the current survivors
         # candidates = propose(population, judge) - chłopaki robiom
+        candidates = population.iloc[:0]  # until propose() lands: no new blood
 
         # 2. rank the pool with the judge. sort_sequences is a full O(n log n)
         #    ordering; bucket_sort_sequences is the cheap O(n) Swiss variant
@@ -70,12 +124,12 @@ def optimize(population, judge, generations=GENERATIONS, keep=POPULATION):
         # 3. keep the top `keep` and go again
         population = pool.set_index(ID_COL).loc[ranked_ids[:keep]].reset_index()
 
-        print(f"generation {generation}: not implemented "
+        print(f"generation {generation}: {len(population)} survivors "
               f"({judge.calls} judge calls spent)")
 
-        # Submission
-        fasta = build_fasta(population)
-        
+        # 4. submit what we have now -- only the best upload counts, so there
+        #    is nothing to lose by scoring every generation.
+        submit(population)
 
     return population
 
@@ -90,7 +144,6 @@ def main():
     best = optimize(promoters, judge)
 
     # save_dataframe(best, ROOT / "out" / "best.csv")
-    # wgraj(build_fasta(dict(zip(best[ID_COL], best[SEQ_COL]))))
     return best
 
 
