@@ -4,8 +4,11 @@ api.py -- thin Python client for the HYPPE "Hack the Promoter" API.
 One function per endpoint, stdlib only (urllib), with automatic retries on
 503 (GPU queue full) and 429 (rate limit, except for ``/wgraj``).
 
-The API key is read from the environment or from a ``.env`` file in the
-project root; see ``.env.example``.
+All ``HYPPE_API_KEY*`` entries of the environment / the ``.env`` file in the
+project root are used (see ``.env.example``). Every key has its own per-minute
+limit, so requests go round-robin over the pool and a key that answers 429 is
+parked for the rest of its minute while the others keep working; the client
+only sleeps when every key is cooling down.
 
 Endpoint names, request fields and response keys are kept in the original
 Polish, exactly as the server expects them.
@@ -23,9 +26,11 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -39,7 +44,9 @@ __all__ = [
     "get_client",
     "is_b_stronger",
     "load_env",
+    "load_keys",
     "me",
+    "me_all",
     "nawigator_edycje",
     "nawigator_mapa",
     "parse_fasta",
@@ -51,6 +58,16 @@ __all__ = [
 ]
 
 DEFAULT_URL = "https://hyppe.futura.foundation"
+
+# Every environment variable whose name starts with this is treated as a key.
+KEY_ENV_PREFIX = "HYPPE_API_KEY"
+PLACEHOLDER_KEYS = frozenset({"", "YOUR_KEY"})
+
+# How long a key is parked after a 429 when the server sends no Retry-After;
+# the documented limits are per minute.
+KEY_COOLDOWN = 60.0
+# A 429 from /wgraj means the 5 minute upload cooldown of that key.
+UPLOAD_COOLDOWN = 300.0
 
 # Cloudflare in front of the API rejects requests without a browser-like
 # User-Agent with "error code: 1010".
@@ -108,28 +125,99 @@ def load_env(path: str | Path | None = None) -> dict[str, str]:
     return values
 
 
+def load_keys(path: str | Path | None = None) -> list[str]:
+    """Collect every API key from the environment and from ``.env``.
+
+    Any variable named ``HYPPE_API_KEY``, ``HYPPE_API_KEY_1``, ... counts;
+    real environment variables win over the file, placeholders and duplicates
+    are dropped. The bare name comes first, the numbered ones in order.
+    """
+    env = load_env(path)
+    merged = dict(env)
+    merged.update(os.environ)
+
+    def order(name: str) -> tuple[int, str]:
+        suffix = name[len(KEY_ENV_PREFIX) :].lstrip("_")
+        return (int(suffix), "") if suffix.isdigit() else (10**6, name)
+
+    keys: list[str] = []
+    for name in sorted(
+        (n for n in merged if n.startswith(KEY_ENV_PREFIX)), key=order
+    ):
+        value = merged[name].strip()
+        if value not in PLACEHOLDER_KEYS and value not in keys:
+            keys.append(value)
+    return keys
+
+
+class _KeyPool:
+    """Round-robin over API keys, skipping the ones that are rate limited."""
+
+    def __init__(self, keys: Iterable[str]) -> None:
+        self.keys = list(keys)
+        self._ready_at = [0.0] * len(self.keys)
+        self._next = 0
+        self._lock = threading.Lock()
+
+    def __len__(self) -> int:
+        return len(self.keys)
+
+    def acquire(self) -> tuple[int, str]:
+        """Return ``(index, key)`` of the next usable key.
+
+        Blocks only while *all* keys are cooling down.
+        """
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                for offset in range(len(self.keys)):
+                    index = (self._next + offset) % len(self.keys)
+                    if self._ready_at[index] <= now:
+                        self._next = (index + 1) % len(self.keys)
+                        return index, self.keys[index]
+                wait = min(self._ready_at) - now
+            time.sleep(min(max(wait, 0.05), 8.0))
+
+    def park(self, index: int, seconds: float) -> None:
+        """Take a key out of rotation for ``seconds``."""
+        with self._lock:
+            self._ready_at[index] = max(
+                self._ready_at[index], time.monotonic() + seconds
+            )
+
+    def cooldowns(self) -> list[float]:
+        """Seconds left before each key is usable again (0 = ready now)."""
+        with self._lock:
+            now = time.monotonic()
+            return [max(0.0, ready - now) for ready in self._ready_at]
+
+
 # --------------------------------------------------------------------------
 # client
 # --------------------------------------------------------------------------
 class HyppeClient:
-    """HTTP client for a single API key."""
+    """HTTP client cycling over every configured API key."""
 
     def __init__(
         self,
-        api_key: str | None = None,
+        api_key: str | Iterable[str] | None = None,
         base_url: str | None = None,
         timeout: float = 900.0,
         attempts: int = 6,
     ) -> None:
         env = load_env()
-        self.api_key = (
-            api_key or os.environ.get("HYPPE_API_KEY") or env.get("HYPPE_API_KEY") or ""
-        )
-        if not self.api_key or self.api_key == "YOUR_KEY":
+        if api_key is None:
+            keys = load_keys()
+        elif isinstance(api_key, str):
+            keys = [api_key]
+        else:
+            keys = [k for k in api_key if k]
+        if not keys:
             raise ValueError(
-                "No API key. Put HYPPE_API_KEY=... in .env "
+                "No API key. Put HYPPE_API_KEY_1=... in .env "
                 "(copy .env.example) or pass api_key=..."
             )
+        self.keys = _KeyPool(keys)
         self.base_url = (
             base_url
             or os.environ.get("HYPPE_API_URL")
@@ -140,17 +228,30 @@ class HyppeClient:
         self.attempts = attempts
 
     # -- low level ---------------------------------------------------------
-    def request(self, path: str, payload: dict[str, Any] | None = None) -> Any:
+    def request(
+        self,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        key_index: int | None = None,
+    ) -> Any:
         """Call ``path``; a non-None ``payload`` makes it a JSON POST.
 
-        Returns the decoded JSON body, raises :class:`ApiError` otherwise.
-        Retries 503 always and 429 everywhere except ``/wgraj`` (where the
-        cooldown is 5 minutes and waiting it out inline makes no sense).
+        Each attempt takes the next key off the pool. Returns the decoded
+        JSON body, raises :class:`ApiError` otherwise. Retries 503 always and
+        429 everywhere except ``/wgraj`` (where the cooldown is 5 minutes and
+        waiting it out inline makes no sense) -- a 429 parks that one key and
+        the retry immediately goes out on another.
+
+        ``key_index`` pins the call to one key instead of using the rotation.
         """
         last: tuple[int, Any] = (0, "no attempt made")
         for attempt in range(self.attempts):
+            if key_index is None:
+                index, api_key = self.keys.acquire()
+            else:
+                index, api_key = key_index, self.keys.keys[key_index]
             request = urllib.request.Request(self.base_url + path)
-            request.add_header("X-API-Key", self.api_key)
+            request.add_header("X-API-Key", api_key)
             request.add_header("User-Agent", USER_AGENT)
             if payload is not None:
                 request.add_header("Content-Type", "application/json")
@@ -165,11 +266,18 @@ class HyppeClient:
                 except ValueError:
                     pass
                 last = (exc.code, body)
+                retry_after = float(exc.headers.get("Retry-After") or 0)
+                if exc.code == 429:
+                    default = UPLOAD_COOLDOWN if path == "/wgraj" else KEY_COOLDOWN
+                    self.keys.park(index, retry_after or default)
                 retryable = exc.code == 503 or (exc.code == 429 and path != "/wgraj")
                 if not retryable or attempt == self.attempts - 1:
                     raise ApiError(exc.code, path, body) from exc
-                delay = float(exc.headers.get("Retry-After") or 0) or 0.4 * 2**attempt
-                time.sleep(min(delay, 8.0))
+                if exc.code == 429:
+                    # The key is parked; the next attempt picks another one and
+                    # acquire() waits only if the whole pool is cooling down.
+                    continue
+                time.sleep(min(retry_after or 0.4 * 2**attempt, 8.0))
             except urllib.error.URLError as exc:
                 last = (0, f"network: {exc}")
                 if attempt == self.attempts - 1:
@@ -181,6 +289,10 @@ class HyppeClient:
     def me(self) -> dict[str, Any]:
         """GET /me -- key state, per-minute limits, daily usage. No limit."""
         return self.request("/me")
+
+    def me_all(self) -> list[dict[str, Any]]:
+        """GET /me once per key -- the state of the whole pool. No limit."""
+        return [self.request("/me", key_index=i) for i in range(len(self.keys))]
 
     def dziki(self) -> dict[str, Any]:
         """GET /dziki -- the wild-type ``pks1`` promoter, 800 bp. No limit.
@@ -291,6 +403,11 @@ def get_client(**kwargs: Any) -> HyppeClient:
 def me() -> dict[str, Any]:
     """GET /me -- see :meth:`HyppeClient.me`."""
     return get_client().me()
+
+
+def me_all() -> list[dict[str, Any]]:
+    """GET /me per key -- see :meth:`HyppeClient.me_all`."""
+    return get_client().me_all()
 
 
 def dziki() -> dict[str, Any]:
@@ -451,10 +568,14 @@ def print_ranking(table: dict[str, Any] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    account = me()
-    print("team      :", account["druzyna"], "|", account["uczestnik"])
-    print("limits/min:", account["limity_na_minute"])
-    print("upload in :", account["zgloszenie_mozliwe_za_s"], "s")
+    accounts = me_all()
+    print("team      :", accounts[0]["druzyna"], "|", accounts[0]["uczestnik"])
+    print("keys      :", len(accounts))
+    for number, account in enumerate(accounts, 1):
+        print(
+            f"  key {number}  : limits/min {account['limity_na_minute']} "
+            f"| upload in {account['zgloszenie_mozliwe_za_s']} s"
+        )
 
     wild = dziki()
     print(
