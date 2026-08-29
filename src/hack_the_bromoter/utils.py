@@ -22,7 +22,25 @@ __all__ = [
     "read_dataframe",
     "save_dataframe",
     "sequence_map",
+    "init_history"
 ]
+
+def _find_root() -> Path:
+    """Project root: the nearest ancestor holding ``pyproject.toml``."""
+    here = Path(__file__).resolve()
+    for parent in [here.parent, *here.parents]:
+        if (parent / "pyproject.toml").is_file():
+            return parent
+    for parent in [Path.cwd(), *Path.cwd().parents]:
+        if (parent / "pyproject.toml").is_file():
+            return parent
+    return Path.cwd()
+
+ROOT = _find_root()
+
+HISTORY_DIR = ROOT / "history"
+RAW_DIR = HISTORY_DIR / "raw"
+FASTA_DIR = HISTORY_DIR / "fasta"
 
 
 def _find_root() -> Path:
@@ -129,6 +147,28 @@ def convert_promoters(input_path: str, output_path: str = "sequences.csv") -> in
 
     return count
 
+def save_raw(df: pd.DataFrame, generation: int, directory: str | Path = RAW_DIR) -> Path:
+    """Save one generation's dataframe snapshot to ``history/raw/gen_<N>.csv``.
+ 
+    Kept separate from the rolling ``sequences.csv`` backlog so every
+    generation stays inspectable on its own, even after later generations
+    are appended to the backlog.
+    """
+    path = Path(directory) / f"gen_{generation:05d}.csv"
+    return save_dataframe(df, path)
+ 
+ 
+def save_fasta(fasta: str, generation: int, directory: str | Path = FASTA_DIR) -> Path:
+    """Save the FASTA text submitted to /wgraj to ``history/fasta/gen_<N>.fasta``."""
+    path = Path(directory) / f"gen_{generation:05d}.fasta"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(fasta, encoding="utf-8")
+    return path
+
+
+def init_history():
+
+    pass
 
 def sequence_map(
     df: pd.DataFrame,

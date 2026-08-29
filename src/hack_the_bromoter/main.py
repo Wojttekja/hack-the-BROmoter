@@ -47,6 +47,7 @@ from hack_the_bromoter.utils import (
     read_dataframe,
     save_dataframe,
     sequence_map,
+    init_history
 )
 
 from hack_the_bromoter.navigator import evolve
@@ -172,6 +173,19 @@ def record(population, generation: int, scores: dict | None) -> pd.DataFrame:
     log(f"backlog saved: {len(results)} rows -> {SEQUENCES_BACKLOG}", 1)
     return results
 
+def wild_enrichment(pool: pd.DataFrame, k=1):
+    wild_guy = wild_sequence()
+
+    wild_df = pd.DataFrame({
+        "id": pool.shape[0]+1,
+        "sequence": wild_guy,
+        "gen": 0,
+        "top10": 0,
+        "pozycja_top100": 0,
+        "points": 0
+    })
+
+    pool.append(wild_df)
 
 def optimize(population, judge, generations=GENERATIONS, keep=POPULATION):
     """The loop: propose candidates, rank them with the judge, keep the best.
@@ -182,6 +196,9 @@ def optimize(population, judge, generations=GENERATIONS, keep=POPULATION):
     for generation in range(generations):
         log(f"=== generation {generation}/{generations - 1}: "
             f"{len(population)} sequences in ===")
+
+        # wild enrichment hihi
+        wild_enrichment(population, 1)
 
         # 1. propose new candidates from the current survivors
         candidates = evolve(population, k=200) 
@@ -218,6 +235,10 @@ def optimize(population, judge, generations=GENERATIONS, keep=POPULATION):
         scores = submit(population, wait=True)
         record(population, generation, scores)
 
+        # add to the history
+
+
+
     log(f"=== optimizer finished: {len(population)} sequences, "
         f"{judge.calls} judge calls, {judge.ties} ties ===")
     return population
@@ -232,6 +253,8 @@ def main():
     else:
         log(f"seeding the backlog from {PROMOTERS_SOURCE} ...")
         written = convert_promoters(str(PROMOTERS_SOURCE), str(SEQUENCES_BACKLOG))
+
+        init_history()
         log(f"wrote {written} rows to {SEQUENCES_BACKLOG}", 1)
 
     promoters = read_dataframe(SEQUENCES_BACKLOG)
