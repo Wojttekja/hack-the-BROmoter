@@ -49,6 +49,8 @@ from hack_the_bromoter.utils import (
     sequence_map,
 )
 
+from hack_the_bromoter.navigator import evolve
+
 # How many candidates survive each generation.
 POPULATION = 100
 GENERATIONS = 10000
@@ -182,15 +184,16 @@ def optimize(population, judge, generations=GENERATIONS, keep=POPULATION):
             f"{len(population)} sequences in ===")
 
         # 1. propose new candidates from the current survivors
-        # candidates = propose(population, judge) - chłopaki robiom
-        candidates = population.iloc[:0]  # until propose() lands: no new blood
+        candidates = evolve(population, k=200) 
+        # candidates = population.iloc[:0]  # until propose() lands: no new blood
         log(f"proposed {len(candidates)} new candidates "
             f"(propose() is still a stub)", 1)
 
         # 2. rank the pool with the judge. sort_sequences is a full O(n log n)
         #    ordering; bucket_sort_sequences is the cheap O(n) Swiss variant
         #    for when we only need "roughly which group is better".
-        pool = pd.concat([population, candidates], ignore_index=True)
+        # pool = pd.concat([population, candidates], ignore_index=True)
+        pool = candidates
 
         # Anything proposed after the Judge was built is unknown to it and
         # would blow up with a KeyError deep inside a thread pool.
