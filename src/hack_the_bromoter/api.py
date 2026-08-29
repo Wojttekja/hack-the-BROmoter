@@ -586,3 +586,5 @@ if __name__ == "__main__":
         f"wild type : {wild['nazwa']} | gene {wild['gen']} "
         f"| {wild['genom']} | {wild['dlugosc']} bp"
     )
+
+    print_ranking()

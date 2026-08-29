@@ -145,7 +145,7 @@ def dedupe_by_distance(
 def select_top(
     df: pd.DataFrame,
     fraction: float = 0.2,
-    min_distance: int = 8,
+    min_distance: int = 31,
     id_col: str = ID_COL,
     seq_col: str = SEQ_COL,
     verbose: bool = True,
