@@ -31,29 +31,30 @@ from hack_the_bromoter.api import (
     nawigator_mapa,  # noqa: F401
     ranking,  # noqa: F401
     wgraj,  # noqa: F401
-    wild_sequence,  # noqa: F401
+    wild_sequence,
 )
+from hack_the_bromoter.fitness import NavigatorFitness
 from hack_the_bromoter.judge import (
-    Judge,
-    bucket_sort_sequences,
+    Judge,  # noqa: F401
+    bucket_sort_sequences,  # noqa: F401
     copeland_scores,  # noqa: F401
     sort_sequences,  # noqa: F401
 )
+from hack_the_bromoter.navigator import evolve
 from hack_the_bromoter.utils import (
     ID_COL,
     ROOT,
     SEQ_COL,
     convert_promoters,
+    init_history,
     read_dataframe,
     save_dataframe,
     sequence_map,
-    init_history
 )
 
-from hack_the_bromoter.navigator import evolve
-
-# How many candidates survive each generation.
+# How many candidates survive each generation, and how many are bred.
 POPULATION = 100
+CHILDREN = 200
 GENERATIONS = 10000
 
 # /wgraj is capped at one upload per 5 minutes *per key*; a generation can
@@ -162,6 +163,10 @@ def record(population, generation: int, scores: dict | None) -> pd.DataFrame:
         "pozycja_top100": scores["pozycja_top100"] if scores else 0,
         "points": scores["punkty_razem"] if scores else 0,
     })
+    for column in ("parent_id", "fitness", "zmian", "blad"):
+        if column in population:
+            results[column] = population[column].values
+
     if scores is None:
         log("no score for this generation -- recording the rows with zeros", 1)
 
@@ -174,70 +179,100 @@ def record(population, generation: int, scores: dict | None) -> pd.DataFrame:
     return results
 
 def wild_enrichment(pool: pd.DataFrame, k=1) -> pd.DataFrame:
-    wild_guy = wild_sequence()
-    next_id = pool[ID_COL].max() + 1
+    """Add `k` freshly-sampled wild sequences to `pool`.
 
-    wild_df = pd.DataFrame({
-        ID_COL: [next_id],
-        SEQ_COL: [wild_guy],
-    })
+    IDs already in the backlog are a mix of plain integers (the original
+    promoters) and lineage strings like ``elite_01``/``3_007`` (bred
+    children), so `max() + 1` isn't a safe way to mint a new one. Use a
+    `wild_NNN` id instead, bumping NNN past whatever wild ids already exist.
+    """
+    existing = set(pool[ID_COL].astype(str))
+    used = 0
+    wild_rows = []
+    for _ in range(k):
+        used += 1
+        while f"wild_{used:03d}" in existing:
+            used += 1
+        new_id = f"wild_{used:03d}"
+        existing.add(new_id)
+        wild_rows.append({ID_COL: new_id, SEQ_COL: wild_sequence()})
 
+    wild_df = pd.DataFrame(wild_rows)
     return pd.concat([pool, wild_df], ignore_index=True)
 
-def optimize(population, judge, generations=GENERATIONS, keep=POPULATION):
-    """The loop: propose candidates, rank them with the judge, keep the best.
+def _core(df: pd.DataFrame) -> pd.DataFrame:
+    """Just the columns the loop carries between generations."""
+    out = df[[ID_COL, SEQ_COL]].copy()
+    out["parent_id"] = df.get("parent_id", pd.NA)
+    return out
+
+
+def optimize(population, fitness, generations=GENERATIONS, keep=POPULATION):
+    """The loop: propose candidates, score them, keep the best.
 
     `population` is a DataFrame with [id, sequence]; the same shape comes back
-    out, ordered best-first by the judge.
+    out, ordered best-first by `fitness`.
+
+    Selection used to run on `/sedzia` through `bucket_sort_sequences`. It no
+    longer does. Once the pool converged past the wild type the judge tied on
+    *every* intra-population pair -- including best against worst -- so that
+    ranking was returning coin flips and selection pressure had fallen to
+    zero, which is what flattened the score. `NavigatorFitness` still spreads
+    across the pool, and costs one call per candidate instead of fourteen.
+    See `hack_the_bromoter.fitness` for the measurements.
     """
     for generation in range(generations):
         log(f"=== generation {generation}/{generations - 1}: "
             f"{len(population)} sequences in ===")
 
-        # wild enrichment hihi
-        population = wild_enrichment(population, 1)
+        # 1. propose new candidates from the current survivors.
+        #    `wild_enrichment` used to run here; it injected the wild type --
+        #    the one sequence we know is weakest -- into a pool that is then
+        #    submitted, so it could only ever cost points on ALL100.
+        candidates = evolve(population, k=CHILDREN)
 
-        # 1. propose new candidates from the current survivors
-        candidates = evolve(population, k=200) 
-        # candidates = population.iloc[:0]  # until propose() lands: no new blood
-        log(f"proposed {len(candidates)} new candidates "
-            f"(propose() is still a stub)", 1)
+        # `breed` re-mints elite_01..elite_NN every generation, so ids collide
+        # between generations: the backlog's dedupe would collapse unrelated
+        # sequences onto one row, and any id-keyed cache serves the previous
+        # generation's answer. Stamp the generation in to keep them unique.
+        candidates = candidates.assign(**{
+            ID_COL: [f"g{generation:03d}_{n:04d}" for n in range(len(candidates))]
+        })
+        log(f"proposed {len(candidates)} new candidates", 1)
 
-        # 2. rank the pool with the judge. sort_sequences is a full O(n log n)
-        #    ordering; bucket_sort_sequences is the cheap O(n) Swiss variant
-        #    for when we only need "roughly which group is better".
-        # pool = pd.concat([population, candidates], ignore_index=True)
-        pool = candidates
+        # 2. score the survivors *and* the candidates together. The parents
+        #    are already in the fitness cache so carrying them is free, and it
+        #    is what makes elitism actually hold -- scoring the children alone
+        #    lets a generation come out worse than the one before it.
+        pool = pd.concat([_core(population), _core(candidates)], ignore_index=True)
+        pool = pool.drop_duplicates(subset=SEQ_COL).reset_index(drop=True)
 
-        # Anything proposed after the Judge was built is unknown to it and
-        # would blow up with a KeyError deep inside a thread pool.
-        judge.sequences.update(sequence_map(pool))
-
-        calls_before, ties_before = judge.calls, judge.ties
+        calls_before = fitness.calls
         started = time.monotonic()
-        log(f"ranking {len(pool)} sequences with bucket_sort_sequences ...", 1)
-        ranked_ids = bucket_sort_sequences(pool, judge.judge_many)
-        log(f"ranked in {time.monotonic() - started:.1f} s"
-            f" | {judge.calls - calls_before} /sedzia calls"
-            f" | {judge.ties - ties_before} ties", 1)
-        log(f"top ids: {ranked_ids[:10]}", 1)
+        log(f"scoring {len(pool)} sequences with /nawigator/mapa ...", 1)
+        ranked = fitness.rank(pool)
+        spent = fitness.calls - calls_before
+        log(f"scored in {time.monotonic() - started:.1f} s"
+            f" | {spent} map calls | {len(pool) - spent} cache hits"
+            f" | {fitness.failures} failures so far", 1)
+        log("top 5: " + ", ".join(
+            f"{row[ID_COL]}(fit={row['fitness']:.1f}"
+            f" zmian={row['zmian']:.0f} blad={row['blad']:.0f})"
+            for _, row in ranked.head(5).iterrows()), 1)
 
         # 3. keep the top `keep` and go again
-        population = pool.set_index(ID_COL).loc[ranked_ids[:keep]].reset_index()
-        log(f"generation {generation}: {len(population)} survivors "
-            f"({judge.calls} judge calls spent in total)", 1)
+        population = ranked.head(keep).reset_index(drop=True)
+        log(f"generation {generation}: {len(population)} survivors"
+            f" | best fitness {population['fitness'].iloc[0]:.2f}"
+            f" | median {population['fitness'].median():.2f}", 1)
 
         # 4. submit what we have now -- only the best upload counts, so there
         #    is nothing to lose by scoring every generation.
         scores = submit(population, wait=True)
         record(population, generation, scores)
 
-        # add to the history
-
-
-
     log(f"=== optimizer finished: {len(population)} sequences, "
-        f"{judge.calls} judge calls, {judge.ties} ties ===")
+        f"{fitness.calls} map calls ===")
     return population
 
 
@@ -262,16 +297,19 @@ def main():
         raise KeyError(f"{SEQUENCES_BACKLOG} is missing {sorted(missing)} -- "
                        f"it must be a `;`-separated table with id and sequence")
 
+    # Dedupe on the *sequence*, not the id: ids repeat across generations
+    # (elite_01, elite_02, ...) for entirely different sequences, so an
+    # id-keyed dedupe silently throws away distinct candidates.
     before = len(promoters)
-    promoters = promoters.drop_duplicates(subset=ID_COL, keep="last").reset_index(drop=True)
+    promoters = promoters.drop_duplicates(subset=SEQ_COL, keep="last").reset_index(drop=True)
     if len(promoters) != before:
-        log(f"dropped {before - len(promoters)} rows repeating an id "
-            f"(the backlog keeps one row per generation per sequence)", 1)
+        log(f"dropped {before - len(promoters)} rows repeating a sequence", 1)
+    promoters[ID_COL] = [f"seed_{n:04d}" for n in range(len(promoters))]
 
-    judge = Judge(promoters)
-    log(f"judge ready over {len(judge.sequences)} sequences: {judge!r}", 1)
+    fitness = NavigatorFitness()
+    log(f"fitness ready: {fitness!r}", 1)
 
-    best = optimize(promoters, judge)
+    best = optimize(promoters, fitness)
 
     # save_dataframe(best, ROOT / "out" / "best.csv")
     return best

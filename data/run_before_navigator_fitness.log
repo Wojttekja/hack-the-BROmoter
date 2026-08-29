@@ -1,0 +1,289 @@
+[    0.0s] start
+[    0.0s] fetching /me ...
+[    0.4s]   team: druzyna_05 | used today: 55194/200000 | /sedzia per minute: 3000
+[    1.6s]   4 API key(s) in the pool
+[    1.6s]     key 1: used 55194 | upload possible in 0 s
+[    1.6s]     key 2: used 55194 | upload possible in 0 s
+[    1.6s]     key 3: used 55194 | upload possible in 0 s
+[    1.6s]     key 4: used 55194 | upload possible in 0 s
+[    1.6s] reusing the existing backlog at /Users/wojtek/Documents/hack-the-BROmoter/sequences.csv
+[    1.6s]   loaded 100 rows, columns ['id', 'sequence', 'gen', 'top10', 'pozycja_top100', 'points']
+[    1.6s]   judge ready over 100 sequences: Judge(100 sequences, both_orders=True, calls=0, ties=0)
+[    1.6s] === generation 0/9999: 100 sequences in ===
+parents: 20 of 101 (top 20%, min distance 8)
+breeding 200 children from 20 parents (20 elite kept): [27, 23, 20, 17, 15, 13, 11, 10, 8, 7, 6, 5, 4, 3, 3, 2, 2, 2, 1, 1]
+  [1/20] 1 -> 27 children
+  [2/20] 2 -> 23 children
+  [3/20] 3 -> 20 children
+  [4/20] 4 -> 17 children
+    [4/20] 4: 9 hints, 24 navigator variants
+  [5/20] 5 -> 15 children
+    [3/20] 3: 10 hints, 24 navigator variants
+  [6/20] 6 -> 13 children
+    [2/20] 2: 10 hints, 24 navigator variants
+  [7/20] 7 -> 11 children
+    [1/20] 1: 6 hints, 32 navigator variants
+  [8/20] 8 -> 10 children
+    [5/20] 5: 7 hints, 16 navigator variants
+  [9/20] 9 -> 8 children
+    [6/20] 6: 9 hints, 16 navigator variants
+  [10/20] 10 -> 7 children
+    [7/20] 7: 14 hints, 16 navigator variants
+  [11/20] 11 -> 6 children
+    [8/20] 8: 13 hints, 16 navigator variants
+  [12/20] 12 -> 5 children
+    [9/20] 9: 12 hints, 8 navigator variants
+  [13/20] 13 -> 4 children
+    [11/20] 11: 6 hints, 8 navigator variants
+  [14/20] 14 -> 3 children
+    [10/20] 10: 6 hints, 8 navigator variants
+  [15/20] 15 -> 3 children
+    [12/20] 12: 11 hints, 8 navigator variants
+  [16/20] 16 -> 2 children
+    [13/20] 13: 4 hints, 8 navigator variants
+  [17/20] 17 -> 2 children
+    [14/20] 14: 11 hints, 8 navigator variants
+  [18/20] 18 -> 2 children
+    [15/20] 15: 14 hints, 8 navigator variants
+  [19/20] 19 -> 1 children
+    [16/20] 16: 9 hints, 8 navigator variants
+  [20/20] 20 -> 1 children
+    [17/20] 17: 9 hints, 8 navigator variants
+    [18/20] 18: 7 hints, 8 navigator variants
+    [19/20] 19: 11 hints, 8 navigator variants
+    [20/20] 20: 5 hints, 8 navigator variants
+done: 200 unique sequences out of 200 bred
+[   10.5s]   proposed 200 new candidates (propose() is still a stub)
+[   10.5s]   ranking 200 sequences with bucket_sort_sequences ...
+[  175.9s]   ranked in 165.4 s | 1400 /sedzia calls | 480 ties
+[  175.9s]   top ids: ['4_005', '4_012', '4_001', '4_002', '4_003', '4_004', '4_009', '4_010', '4_011', '4_013']
+[  175.9s]   generation 0: 100 survivors (1400 judge calls spent in total)
+[  175.9s]   preparing a submission from 100 rows
+[  175.9s]     FASTA: 100 records kept of 100 (0 rejected by check_sequence, 0 duplicate sequences, cap 100)
+[  175.9s]     checking the upload cooldown on every key ...
+[  177.2s]       cooldowns (s): key 1=0, key 2=0, key 3=0, key 4=0
+[  177.2s]     POST /wgraj with 100 sequences on key 1 ...
+[  178.2s]     submitted in 1.1 s: scored 100 | TOP10 4 | TOP100 2 | points 16.0
+[  178.2s]     server-side filtering: {'n_w_pliku': 100, 'n_dlugosc_800': 100, 'n_unikalnych': 100, 'n_alfabet_ok': 100, 'n_po_filtrze_N': 100, 'n_ocenianych': 100, 'odrzucone_dlugosc': 0, 'odrzucone_duplikaty': 0, 'odrzucone_alfabet': 0, 'odrzucone_N': 0, 'prog_N': 'powyzej 80 z 800 zasad', 'pominiete_powyzej_limitu': 0, 'limit_ocenianych': 100, 'identyfikatory_odrzuconych': {}, 'identyfikatory_pominietych': []}
+[  178.2s]   backlog holds 100 rows, appending 100
+[  178.2s]   backlog saved: 200 rows -> /Users/wojtek/Documents/hack-the-BROmoter/sequences.csv
+[  178.2s] === generation 1/9999: 100 sequences in ===
+parents: 20 of 101 (top 20%, min distance 8)
+breeding 200 children from 20 parents (20 elite kept): [27, 23, 20, 17, 15, 13, 11, 10, 8, 7, 6, 5, 4, 3, 3, 2, 2, 2, 1, 1]
+  [1/20] 4_005 -> 27 children
+  [2/20] 4_012 -> 23 children
+  [3/20] 4_001 -> 20 children
+  [4/20] 4_002 -> 17 children
+    [2/20] 4_012: 5 hints, 24 navigator variants
+  [5/20] 4_003 -> 15 children
+    [4/20] 4_002: 1 hints, 24 navigator variants
+  [6/20] 4_004 -> 13 children
+    [3/20] 4_001: 3 hints, 24 navigator variants
+  [7/20] 4_009 -> 11 children
+    [1/20] 4_005: 6 hints, 32 navigator variants
+  [8/20] 4_010 -> 10 children
+    [5/20] 4_003: 1 hints, 16 navigator variants
+  [9/20] 4_011 -> 8 children
+    [6/20] 4_004: 4 hints, 16 navigator variants
+  [10/20] 4_013 -> 7 children
+    [7/20] 4_009: 7 hints, 16 navigator variants
+  [11/20] 4_014 -> 6 children
+    [8/20] 4_010: 1 hints, 16 navigator variants
+  [12/20] 4_015 -> 5 children
+    [9/20] 4_011: 4 hints, 8 navigator variants
+  [13/20] 4_016 -> 4 children
+    [10/20] 4_013: 6 hints, 8 navigator variants
+  [14/20] 4_017 -> 3 children
+    [11/20] 4_014: 3 hints, 8 navigator variants
+  [15/20] 2_005 -> 3 children
+    [12/20] 4_015: 2 hints, 8 navigator variants
+  [16/20] 2_023 -> 2 children
+    [13/20] 4_016: 3 hints, 8 navigator variants
+  [17/20] 4_007 -> 2 children
+    [15/20] 2_005: 6 hints, 8 navigator variants
+  [18/20] 4_008 -> 2 children
+    [14/20] 4_017: 5 hints, 8 navigator variants
+  [19/20] 6_002 -> 1 children
+    [16/20] 2_023: 5 hints, 8 navigator variants
+  [20/20] 6_004 -> 1 children
+    [17/20] 4_007: 2 hints, 8 navigator variants
+    [18/20] 4_008: 3 hints, 8 navigator variants
+    [19/20] 6_002: 6 hints, 8 navigator variants
+    [20/20] 6_004: 5 hints, 8 navigator variants
+done: 200 unique sequences out of 200 bred
+[  189.1s]   proposed 200 new candidates (propose() is still a stub)
+[  189.1s]   ranking 200 sequences with bucket_sort_sequences ...
+[  350.7s]   ranked in 161.5 s | 1398 /sedzia calls | 602 ties
+[  350.7s]   top ids: ['4_002_003', '4_003_015', 'elite_01', 'elite_02', 'elite_03', 'elite_04', 'elite_05', 'elite_06', 'elite_07', 'elite_08']
+[  350.7s]   generation 1: 100 survivors (2798 judge calls spent in total)
+[  350.7s]   preparing a submission from 100 rows
+[  350.7s]     FASTA: 100 records kept of 100 (0 rejected by check_sequence, 0 duplicate sequences, cap 100)
+[  350.7s]     checking the upload cooldown on every key ...
+[  351.8s]       cooldowns (s): key 1=127, key 2=0, key 3=0, key 4=0
+[  351.8s]     POST /wgraj with 100 sequences on key 2 ...
+[  352.7s]     submitted in 0.9 s: scored 100 | TOP10 4 | TOP100 2 | points 16.0
+[  352.7s]     server-side filtering: {'n_w_pliku': 100, 'n_dlugosc_800': 100, 'n_unikalnych': 100, 'n_alfabet_ok': 100, 'n_po_filtrze_N': 100, 'n_ocenianych': 100, 'odrzucone_dlugosc': 0, 'odrzucone_duplikaty': 0, 'odrzucone_alfabet': 0, 'odrzucone_N': 0, 'prog_N': 'powyzej 80 z 800 zasad', 'pominiete_powyzej_limitu': 0, 'limit_ocenianych': 100, 'identyfikatory_odrzuconych': {}, 'identyfikatory_pominietych': []}
+[  352.7s]   backlog holds 200 rows, appending 100
+[  352.7s]   backlog saved: 300 rows -> /Users/wojtek/Documents/hack-the-BROmoter/sequences.csv
+[  352.7s] === generation 2/9999: 100 sequences in ===
+parents: 20 of 101 (top 20%, min distance 8)
+breeding 200 children from 20 parents (20 elite kept): [27, 23, 20, 17, 15, 13, 11, 10, 8, 7, 6, 5, 4, 3, 3, 2, 2, 2, 1, 1]
+  [1/20] 4_002_003 -> 27 children
+  [2/20] 4_003_015 -> 23 children
+  [3/20] elite_01 -> 20 children
+  [4/20] elite_02 -> 17 children
+    [4/20] elite_02: 5 hints, 24 navigator variants
+  [5/20] elite_03 -> 15 children
+    [2/20] 4_003_015: 3 hints, 24 navigator variants
+  [6/20] elite_04 -> 13 children
+    [3/20] elite_01: 6 hints, 24 navigator variants
+  [7/20] elite_05 -> 11 children
+    [1/20] 4_002_003: 0 hints, 32 navigator variants
+  [8/20] elite_06 -> 10 children
+    [5/20] elite_03: 3 hints, 16 navigator variants
+  [9/20] elite_07 -> 8 children
+    [6/20] elite_04: 1 hints, 16 navigator variants
+  [10/20] elite_08 -> 7 children
+    [7/20] elite_05: 1 hints, 16 navigator variants
+  [11/20] elite_10 -> 6 children
+    [8/20] elite_06: 4 hints, 16 navigator variants
+  [12/20] elite_11 -> 5 children
+    [10/20] elite_08: 1 hints, 8 navigator variants
+  [13/20] elite_12 -> 4 children
+    [9/20] elite_07: 7 hints, 8 navigator variants
+  [14/20] elite_13 -> 3 children
+    [11/20] elite_10: 6 hints, 8 navigator variants
+  [15/20] elite_14 -> 3 children
+    [12/20] elite_11: 3 hints, 8 navigator variants
+  [16/20] elite_18 -> 2 children
+    [14/20] elite_13: 3 hints, 8 navigator variants
+  [17/20] 4_012_001 -> 2 children
+    [13/20] elite_12: 2 hints, 8 navigator variants
+  [18/20] 4_012_002 -> 2 children
+    [15/20] elite_14: 5 hints, 8 navigator variants
+  [19/20] 4_012_004 -> 1 children
+    [16/20] elite_18: 3 hints, 8 navigator variants
+  [20/20] 4_012_005 -> 1 children
+    [17/20] 4_012_001: 2 hints, 8 navigator variants
+    [19/20] 4_012_004: 1 hints, 8 navigator variants
+    [18/20] 4_012_002: 0 hints, 8 navigator variants
+    [20/20] 4_012_005: 1 hints, 8 navigator variants
+done: 200 unique sequences out of 200 bred
+[  362.4s]   proposed 200 new candidates (propose() is still a stub)
+[  362.4s]   ranking 200 sequences with bucket_sort_sequences ...
+[  523.5s]   ranked in 161.2 s | 1388 /sedzia calls | 603 ties
+[  523.5s]   top ids: ['elite_01', 'elite_02', 'elite_03', 'elite_04', 'elite_05', 'elite_06', 'elite_07', 'elite_09', 'elite_10', 'elite_12']
+[  523.5s]   generation 2: 100 survivors (4186 judge calls spent in total)
+[  523.5s]   preparing a submission from 100 rows
+[  523.5s]     FASTA: 100 records kept of 100 (0 rejected by check_sequence, 0 duplicate sequences, cap 100)
+[  523.5s]     checking the upload cooldown on every key ...
+[  524.9s]       cooldowns (s): key 1=0, key 2=128, key 3=0, key 4=0
+[  524.9s]     POST /wgraj with 100 sequences on key 1 ...
+[  525.9s]     submitted in 1.0 s: scored 100 | TOP10 4 | TOP100 2 | points 16.0
+[  525.9s]     server-side filtering: {'n_w_pliku': 100, 'n_dlugosc_800': 100, 'n_unikalnych': 100, 'n_alfabet_ok': 100, 'n_po_filtrze_N': 100, 'n_ocenianych': 100, 'odrzucone_dlugosc': 0, 'odrzucone_duplikaty': 0, 'odrzucone_alfabet': 0, 'odrzucone_N': 0, 'prog_N': 'powyzej 80 z 800 zasad', 'pominiete_powyzej_limitu': 0, 'limit_ocenianych': 100, 'identyfikatory_odrzuconych': {}, 'identyfikatory_pominietych': []}
+[  525.9s]   backlog holds 300 rows, appending 100
+[  525.9s]   backlog saved: 400 rows -> /Users/wojtek/Documents/hack-the-BROmoter/sequences.csv
+[  525.9s] === generation 3/9999: 100 sequences in ===
+parents: 20 of 101 (top 20%, min distance 8)
+breeding 200 children from 20 parents (20 elite kept): [27, 23, 20, 17, 15, 13, 11, 10, 8, 7, 6, 5, 4, 3, 3, 2, 2, 2, 1, 1]
+  [1/20] elite_01 -> 27 children
+  [2/20] elite_02 -> 23 children
+  [3/20] elite_03 -> 20 children
+  [4/20] elite_04 -> 17 children
+    [4/20] elite_04: 5 hints, 24 navigator variants
+  [5/20] elite_05 -> 15 children
+    [3/20] elite_03: 6 hints, 24 navigator variants
+  [6/20] elite_06 -> 13 children
+    [2/20] elite_02: 3 hints, 24 navigator variants
+  [7/20] elite_07 -> 11 children
+    [1/20] elite_01: 0 hints, 32 navigator variants
+  [8/20] elite_09 -> 10 children
+    [5/20] elite_05: 3 hints, 16 navigator variants
+  [9/20] elite_10 -> 8 children
+    [6/20] elite_06: 1 hints, 16 navigator variants
+  [10/20] elite_12 -> 7 children
+    [7/20] elite_07: 1 hints, 16 navigator variants
+  [11/20] elite_14 -> 6 children
+    [8/20] elite_09: 7 hints, 16 navigator variants
+  [12/20] elite_15 -> 5 children
+    [9/20] elite_10: 1 hints, 8 navigator variants
+  [13/20] elite_16 -> 4 children
+    [10/20] elite_12: 3 hints, 8 navigator variants
+  [14/20] elite_17 -> 3 children
+    [11/20] elite_14: 3 hints, 8 navigator variants
+  [15/20] elite_18 -> 3 children
+    [12/20] elite_15: 5 hints, 8 navigator variants
+  [16/20] elite_19 -> 2 children
+    [13/20] elite_16: 3 hints, 8 navigator variants
+  [17/20] elite_20 -> 2 children
+    [14/20] elite_17: 2 hints, 8 navigator variants
+  [18/20] 4_002_003_001 -> 2 children
+    [15/20] elite_18: 0 hints, 8 navigator variants
+  [19/20] 4_002_003_004 -> 1 children
+    [16/20] elite_19: 1 hints, 8 navigator variants
+  [20/20] 4_002_003_005 -> 1 children
+    [17/20] elite_20: 1 hints, 8 navigator variants
+    [18/20] 4_002_003_001: 2 hints, 8 navigator variants
+    [19/20] 4_002_003_004: 1 hints, 8 navigator variants
+    [20/20] 4_002_003_005: 3 hints, 8 navigator variants
+done: 200 unique sequences out of 200 bred
+[  537.5s]   proposed 200 new candidates (propose() is still a stub)
+[  537.5s]   ranking 200 sequences with bucket_sort_sequences ...
+[  721.5s]   ranked in 184.0 s | 1388 /sedzia calls | 609 ties
+[  721.5s]   top ids: ['elite_09_008', 'elite_01', 'elite_02', 'elite_05', 'elite_06', 'elite_07', 'elite_08', 'elite_09', 'elite_10', 'elite_12']
+[  721.5s]   generation 3: 100 survivors (5574 judge calls spent in total)
+[  721.5s]   preparing a submission from 100 rows
+[  721.5s]     FASTA: 100 records kept of 100 (0 rejected by check_sequence, 0 duplicate sequences, cap 100)
+[  721.5s]     checking the upload cooldown on every key ...
+[  724.6s]       cooldowns (s): key 1=103, key 2=0, key 3=0, key 4=0
+[  724.6s]     POST /wgraj with 100 sequences on key 2 ...
+[  725.5s]     submitted in 0.9 s: scored 100 | TOP10 4 | TOP100 2 | points 16.0
+[  725.5s]     server-side filtering: {'n_w_pliku': 100, 'n_dlugosc_800': 100, 'n_unikalnych': 100, 'n_alfabet_ok': 100, 'n_po_filtrze_N': 100, 'n_ocenianych': 100, 'odrzucone_dlugosc': 0, 'odrzucone_duplikaty': 0, 'odrzucone_alfabet': 0, 'odrzucone_N': 0, 'prog_N': 'powyzej 80 z 800 zasad', 'pominiete_powyzej_limitu': 0, 'limit_ocenianych': 100, 'identyfikatory_odrzuconych': {}, 'identyfikatory_pominietych': []}
+[  725.6s]   backlog holds 400 rows, appending 100
+[  725.6s]   backlog saved: 500 rows -> /Users/wojtek/Documents/hack-the-BROmoter/sequences.csv
+[  725.6s] === generation 4/9999: 100 sequences in ===
+parents: 20 of 101 (top 20%, min distance 8)
+breeding 200 children from 20 parents (20 elite kept): [27, 23, 20, 17, 15, 13, 11, 10, 8, 7, 6, 5, 4, 3, 3, 2, 2, 2, 1, 1]
+  [1/20] elite_09_008 -> 27 children
+  [2/20] elite_01 -> 23 children
+  [3/20] elite_02 -> 20 children
+  [4/20] elite_05 -> 17 children
+    [2/20] elite_01: 0 hints, 24 navigator variants
+  [5/20] elite_06 -> 15 children
+    [3/20] elite_02: 3 hints, 24 navigator variants
+  [6/20] elite_07 -> 13 children
+    [4/20] elite_05: 3 hints, 24 navigator variants
+  [7/20] elite_08 -> 11 children
+    [1/20] elite_09_008: 4 hints, 32 navigator variants
+  [8/20] elite_09 -> 10 children
+    [5/20] elite_06: 1 hints, 16 navigator variants
+  [9/20] elite_10 -> 8 children
+    [6/20] elite_07: 1 hints, 16 navigator variants
+  [10/20] elite_12 -> 7 children
+    [7/20] elite_08: 7 hints, 16 navigator variants
+  [11/20] elite_15 -> 6 children
+    [8/20] elite_09: 1 hints, 16 navigator variants
+  [12/20] elite_16 -> 5 children
+    [9/20] elite_10: 3 hints, 8 navigator variants
+  [13/20] elite_17 -> 4 children
+    [10/20] elite_12: 5 hints, 8 navigator variants
+  [14/20] elite_18 -> 3 children
+    [11/20] elite_15: 0 hints, 8 navigator variants
+  [15/20] elite_20 -> 3 children
+    [12/20] elite_16: 1 hints, 8 navigator variants
+  [16/20] elite_01_001 -> 2 children
+    [13/20] elite_17: 1 hints, 8 navigator variants
+  [17/20] elite_01_003 -> 2 children
+    [14/20] elite_18: 2 hints, 8 navigator variants
+  [18/20] elite_01_004 -> 2 children
+    [15/20] elite_20: 3 hints, 8 navigator variants
+  [19/20] elite_01_005 -> 1 children
+    [16/20] elite_01_001: 0 hints, 8 navigator variants
+  [20/20] elite_01_006 -> 1 children
+    [17/20] elite_01_003: 0 hints, 8 navigator variants
+    [18/20] elite_01_004: 0 hints, 8 navigator variants
+    [19/20] elite_01_005: 1 hints, 8 navigator variants
+    [20/20] elite_01_006: 1 hints, 8 navigator variants
+done: 200 unique sequences out of 200 bred
+[  734.6s]   proposed 200 new candidates (propose() is still a stub)
+[  734.6s]   ranking 200 sequences with bucket_sort_sequences ...

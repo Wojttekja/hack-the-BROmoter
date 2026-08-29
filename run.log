@@ -1,13 +1,83 @@
 [    0.0s] start
 [    0.0s] fetching /me ...
-[    0.1s]   team: druzyna_05 | used today: 54070/200000 | /sedzia per minute: 3000
-[    0.7s]   4 API key(s) in the pool
-[    0.7s]     key 1: used 54072 | upload possible in 193 s
-[    0.7s]     key 2: used 54073 | upload possible in 274 s
-[    0.7s]     key 3: used 54073 | upload possible in 0 s
-[    0.7s]     key 4: used 54075 | upload possible in 0 s
-[    0.7s] reusing the existing backlog at /Users/wojtek/Documents/hack-the-BROmoter/sequences.csv
-[    0.7s]   loaded 200 rows, columns ['id', 'sequence', 'gen', 'top10', 'pozycja_top100', 'points']
-[    0.7s]   judge ready over 200 sequences: Judge(200 sequences, both_orders=True, calls=0, ties=0)
-[    0.7s] === generation 0/9999: 200 sequences in ===
-[    0.8s] crashed:
+[    1.8s]   team: druzyna_05 | used today: 62518/200000 | /sedzia per minute: 3000
+[    7.8s]   4 API key(s) in the pool
+[    7.8s]     key 1: used 62526 | upload possible in 0 s
+[    7.8s]     key 2: used 62534 | upload possible in 0 s
+[    7.8s]     key 3: used 62535 | upload possible in 0 s
+[    7.8s]     key 4: used 62550 | upload possible in 0 s
+[    7.8s] reusing the existing backlog at /Users/wojtek/Documents/hack-the-BROmoter/sequences.csv
+[    7.8s]   loaded 500 rows, columns ['id', 'sequence', 'gen', 'top10', 'pozycja_top100', 'points']
+[    7.8s]   dropped 63 rows repeating a sequence
+[    7.8s]   fitness ready: NavigatorFitness(calls=0, cached=0, failures=0, blad_weight=0.1)
+[    7.8s] === generation 0/9999: 437 sequences in ===
+parents: 87 of 437 (top 20%, min distance 8)
+breeding 200 children from 87 parents (20 elite kept): [7, 7, 6, 6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  [1/87] seed_0000 -> 7 children
+  [2/87] seed_0001 -> 7 children
+  [3/87] seed_0002 -> 6 children
+  [4/87] seed_0003 -> 6 children
+    [4/87] seed_0003: 14 hints, 8 navigator variants
+  [5/87] seed_0004 -> 6 children
+    [3/87] seed_0002: 7 hints, 8 navigator variants
+  [6/87] seed_0005 -> 6 children
+    [2/87] seed_0001: 10 hints, 8 navigator variants
+  [7/87] seed_0006 -> 6 children
+    [1/87] seed_0000: 6 hints, 8 navigator variants
+  [8/87] seed_0007 -> 6 children
+    [5/87] seed_0004: 6 hints, 8 navigator variants
+  [9/87] seed_0008 -> 5 children
+    [6/87] seed_0005: 6 hints, 8 navigator variants
+  [10/87] seed_0009 -> 5 children
+    [8/87] seed_0007: 11 hints, 8 navigator variants
+  [11/87] seed_0010 -> 5 children
+    [7/87] seed_0006: 4 hints, 8 navigator variants
+  [12/87] seed_0011 -> 5 children
+    [9/87] seed_0008: 9 hints, 8 navigator variants
+  [13/87] seed_0012 -> 5 children
+    [10/87] seed_0009: 9 hints, 8 navigator variants
+  [14/87] seed_0013 -> 5 children
+    [11/87] seed_0010: 7 hints, 8 navigator variants
+  [15/87] seed_0014 -> 4 children
+    [12/87] seed_0011: 11 hints, 8 navigator variants
+  [16/87] seed_0015 -> 4 children
+    [13/87] seed_0012: 9 hints, 8 navigator variants
+  [17/87] seed_0016 -> 4 children
+    [14/87] seed_0013: 3 hints, 8 navigator variants
+  [18/87] seed_0017 -> 4 children
+    [15/87] seed_0014: 7 hints, 8 navigator variants
+  [19/87] seed_0018 -> 4 children
+    [16/87] seed_0015: 13 hints, 8 navigator variants
+  [20/87] seed_0019 -> 4 children
+    [17/87] seed_0016: 10 hints, 8 navigator variants
+  [21/87] seed_0020 -> 4 children
+    [18/87] seed_0017: 10 hints, 8 navigator variants
+  [22/87] seed_0021 -> 4 children
+    [19/87] seed_0018: 10 hints, 8 navigator variants
+  [23/87] seed_0022 -> 4 children
+    [20/87] seed_0019: 5 hints, 8 navigator variants
+  [24/87] seed_0023 -> 3 children
+    [21/87] seed_0020: 7 hints, 8 navigator variants
+  [25/87] seed_0024 -> 3 children
+    [22/87] seed_0021: 11 hints, 8 navigator variants
+  [26/87] seed_0025 -> 3 children
+    [23/87] seed_0022: 9 hints, 8 navigator variants
+  [27/87] seed_0026 -> 3 children
+    [24/87] seed_0023: 11 hints, 8 navigator variants
+  [28/87] seed_0027 -> 3 children
+    [25/87] seed_0024: 10 hints, 8 navigator variants
+  [29/87] seed_0028 -> 3 children
+    [26/87] seed_0025: 4 hints, 8 navigator variants
+  [30/87] seed_0029 -> 3 children
+    [27/87] seed_0026: 8 hints, 8 navigator variants
+  [31/87] seed_0030 -> 3 children
+    [28/87] seed_0027: 12 hints, 8 navigator variants
+  [32/87] seed_0031 -> 3 children
+    [29/87] seed_0028: 7 hints, 8 navigator variants
+  [33/87] seed_0032 -> 3 children
+    [30/87] seed_0029: 11 hints, 8 navigator variants
+  [34/87] seed_0033 -> 3 children
+    [31/87] seed_0030: 10 hints, 8 navigator variants
+  [35/87] seed_0034 -> 2 children
+    [32/87] seed_0031: 6 hints, 8 navigator variants
+  [36/87] seed_0035 -> 2 children

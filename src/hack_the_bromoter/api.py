@@ -24,6 +24,7 @@ Typical use:
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import threading
@@ -68,6 +69,11 @@ PLACEHOLDER_KEYS = frozenset({"", "YOUR_KEY"})
 KEY_COOLDOWN = 60.0
 # A 429 from /wgraj means the 5 minute upload cooldown of that key.
 UPLOAD_COOLDOWN = 300.0
+
+# Transient gateway failures worth another attempt: 502/504 come from the
+# proxy in front of the API when the GPU box is slow or overloaded, and 503 is
+# the documented "queue full". None of them say anything about the request.
+RETRYABLE_STATUS = frozenset({502, 503, 504})
 
 # Cloudflare in front of the API rejects requests without a browser-like
 # User-Agent with "error code: 1010".
@@ -237,8 +243,8 @@ class HyppeClient:
         """Call ``path``; a non-None ``payload`` makes it a JSON POST.
 
         Each attempt takes the next key off the pool. Returns the decoded
-        JSON body, raises :class:`ApiError` otherwise. Retries 503 always and
-        429 everywhere except ``/wgraj`` (where the cooldown is 5 minutes and
+        JSON body, raises :class:`ApiError` otherwise. Retries
+        `RETRYABLE_STATUS` always and 429 everywhere except ``/wgraj`` (where the cooldown is 5 minutes and
         waiting it out inline makes no sense) -- a 429 parks that one key and
         the retry immediately goes out on another.
 
@@ -270,7 +276,8 @@ class HyppeClient:
                 if exc.code == 429:
                     default = UPLOAD_COOLDOWN if path == "/wgraj" else KEY_COOLDOWN
                     self.keys.park(index, retry_after or default)
-                retryable = exc.code == 503 or (exc.code == 429 and path != "/wgraj")
+                retryable = (exc.code in RETRYABLE_STATUS
+                             or (exc.code == 429 and path != "/wgraj"))
                 if not retryable or attempt == self.attempts - 1:
                     raise ApiError(exc.code, path, body) from exc
                 if exc.code == 429:
@@ -278,10 +285,16 @@ class HyppeClient:
                     # acquire() waits only if the whole pool is cooling down.
                     continue
                 time.sleep(min(retry_after or 0.4 * 2**attempt, 8.0))
-            except urllib.error.URLError as exc:
-                last = (0, f"network: {exc}")
+            except (urllib.error.URLError, http.client.HTTPException) as exc:
+                # http.client raises IncompleteRead when a response is cut
+                # short -- seen on /nawigator/mapa, whose bodies run to ~85 kB
+                # and get truncated under concurrency. It is a transport
+                # failure like any other URLError, so it retries the same way;
+                # it is *not* a subclass of URLError, so it needs naming here
+                # or it escapes the client entirely.
+                last = (0, f"network: {exc!r}")
                 if attempt == self.attempts - 1:
-                    raise ApiError(0, path, f"network: {exc}") from exc
+                    raise ApiError(0, path, f"network: {exc!r}") from exc
                 time.sleep(0.4 * 2**attempt)
         raise ApiError(last[0], path, last[1])
 
