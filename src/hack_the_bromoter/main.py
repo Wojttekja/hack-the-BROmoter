@@ -50,8 +50,8 @@ from hack_the_bromoter.utils import (
 )
 
 # How many candidates survive each generation.
-POPULATION = 50
-GENERATIONS = 2
+POPULATION = 100
+GENERATIONS = 10000
 
 # /wgraj is capped at one upload per 5 minutes *per key*; a generation can
 # finish faster than that, so a submission that finds every key still cooling
