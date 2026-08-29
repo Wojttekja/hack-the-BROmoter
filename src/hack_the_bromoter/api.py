@@ -1,18 +1,22 @@
 """
-api.py -- klient HTTP do API hackathonu "Hack the Promoter".
+api.py -- thin Python client for the HYPPE "Hack the Promoter" API.
 
-Jedna funkcja na endpoint, bez zaleznosci poza biblioteka standardowa.
-Klucz API czytany jest z pliku `.env` (zmienna `HYPPE_API_KEY`) albo ze
-srodowiska. Zobacz `.env.example`.
+One function per endpoint, stdlib only (urllib), with automatic retries on
+503 (GPU queue full) and 429 (rate limit, except for ``/wgraj``).
 
-Uzycie:
+The API key is read from the environment or from a ``.env`` file in the
+project root; see ``.env.example``.
 
-    from hack_the_bromoter import api
+Endpoint names, request fields and response keys are kept in the original
+Polish, exactly as the server expects them.
 
-    api.me()
-    dziki = api.dziki()["sekwencja"]
-    api.sedzia(dziki, kandydat, nazwa_b="kandydat")
-    api.wgraj(api.zbuduj_fasta([("wariant_1", seq), ...]))
+Typical use:
+
+    from hack_the_bromoter.api import me, dziki, sedzia, wgraj
+
+    print(me()["druzyna"])
+    wild = dziki()["sekwencja"]
+    print(sedzia(wild, candidate)["silniejsza_idx"])
 """
 
 from __future__ import annotations
@@ -25,338 +29,435 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-BAZOWY_URL = "https://hyppe.futura.foundation"
+__all__ = [
+    "ApiError",
+    "HyppeClient",
+    "apply_recommendations",
+    "build_fasta",
+    "check_sequence",
+    "dziki",
+    "get_client",
+    "is_b_stronger",
+    "load_env",
+    "me",
+    "nawigator_edycje",
+    "nawigator_mapa",
+    "parse_fasta",
+    "print_ranking",
+    "ranking",
+    "sedzia",
+    "wgraj",
+    "wild_sequence",
+]
 
-# urllib bez tego naglowka dostaje od Cloudflare "error code: 1010".
-UA = (
+DEFAULT_URL = "https://hyppe.futura.foundation"
+
+# Cloudflare in front of the API rejects requests without a browser-like
+# User-Agent with "error code: 1010".
+USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/128.0 Safari/537.36"
 )
 
-ZASADY = frozenset("ACGTN")
-DLUGOSC_PROMOTORA = 800
-MAX_UDZIAL_N = 0.10
-LIMIT_OCENIANYCH = 100
+SEQUENCE_LENGTH = 800
+ALPHABET = frozenset("ACGTN")
+MAX_N_FRACTION = 0.10
+MAX_SCORED_SEQUENCES = 100
+MAX_FASTA_CHARS = 2_000_000
 
 
-class BladAPI(RuntimeError):
-    """Odpowiedz inna niz 200 albo blad sieci."""
+class ApiError(RuntimeError):
+    """Non-200 answer from the API (or a network failure)."""
 
-    def __init__(self, kod: int, tresc: Any, sciezka: str) -> None:
-        super().__init__(f"{sciezka}: HTTP {kod}: {tresc}")
-        self.kod = kod
-        self.tresc = tresc
-        self.sciezka = sciezka
+    def __init__(self, status: int, path: str, body: Any) -> None:
+        super().__init__(f"{path} -> HTTP {status}: {body!r}")
+        self.status = status
+        self.path = path
+        self.body = body
 
 
 # --------------------------------------------------------------------------
-# konfiguracja
+# configuration
 # --------------------------------------------------------------------------
+def load_env(path: str | Path | None = None) -> dict[str, str]:
+    """Parse a ``.env`` file into a dict without overwriting real env vars.
+
+    Values already present in ``os.environ`` win. Missing file -> empty dict.
+    With no ``path``, walks up from this file looking for ``.env``.
+    """
+    if path is None:
+        for parent in Path(__file__).resolve().parents:
+            candidate = parent / ".env"
+            if candidate.is_file():
+                path = candidate
+                break
+        else:
+            return {}
+
+    values: dict[str, str] = {}
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                values[key] = value
+    return values
 
 
-def wczytaj_env(sciezka: str | Path | None = None) -> dict[str, str]:
-    """Minimalny parser `.env` (KLUCZ=wartosc, `#` to komentarz)."""
-    if sciezka is None:
-        korzen = Path(__file__).resolve().parents[2]
-        sciezka = korzen / ".env"
-    sciezka = Path(sciezka)
-    if not sciezka.is_file():
-        return {}
-    pary: dict[str, str] = {}
-    for linia in sciezka.read_text(encoding="utf-8").splitlines():
-        linia = linia.strip()
-        if not linia or linia.startswith("#") or "=" not in linia:
-            continue
-        nazwa, _, wartosc = linia.partition("=")
-        wartosc = wartosc.strip()
-        if len(wartosc) >= 2 and wartosc[0] == wartosc[-1] and wartosc[0] in "\"'":
-            wartosc = wartosc[1:-1]
-        pary[nazwa.strip()] = wartosc
-    return pary
+# --------------------------------------------------------------------------
+# client
+# --------------------------------------------------------------------------
+class HyppeClient:
+    """HTTP client for a single API key."""
 
-
-def klucz_api(klucz: str | None = None) -> str:
-    """Klucz z argumentu, ze srodowiska albo z `.env`."""
-    if klucz:
-        return klucz
-    z_env = os.environ.get("HYPPE_API_KEY")
-    if z_env:
-        return z_env
-    z_pliku = wczytaj_env().get("HYPPE_API_KEY", "")
-    if not z_pliku or z_pliku == "YOUR_KEY":
-        raise RuntimeError(
-            "Brak klucza API. Wpisz HYPPE_API_KEY=... w pliku .env "
-            "albo ustaw zmienna srodowiskowa."
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        timeout: float = 900.0,
+        attempts: int = 6,
+    ) -> None:
+        env = load_env()
+        self.api_key = (
+            api_key or os.environ.get("HYPPE_API_KEY") or env.get("HYPPE_API_KEY") or ""
         )
-    return z_pliku
+        if not self.api_key or self.api_key == "YOUR_KEY":
+            raise ValueError(
+                "No API key. Put HYPPE_API_KEY=... in .env "
+                "(copy .env.example) or pass api_key=..."
+            )
+        self.base_url = (
+            base_url
+            or os.environ.get("HYPPE_API_URL")
+            or env.get("HYPPE_API_URL")
+            or DEFAULT_URL
+        ).rstrip("/")
+        self.timeout = timeout
+        self.attempts = attempts
 
+    # -- low level ---------------------------------------------------------
+    def request(self, path: str, payload: dict[str, Any] | None = None) -> Any:
+        """Call ``path``; a non-None ``payload`` makes it a JSON POST.
 
-def bazowy_url() -> str:
-    return (
-        os.environ.get("HYPPE_API_URL")
-        or wczytaj_env().get("HYPPE_API_URL")
-        or BAZOWY_URL
-    ).rstrip("/")
-
-
-# --------------------------------------------------------------------------
-# transport
-# --------------------------------------------------------------------------
-
-
-def wolaj(
-    sciezka: str,
-    dane: dict[str, Any] | None = None,
-    *,
-    klucz: str | None = None,
-    limit: float = 900,
-    prob: int = 6,
-) -> tuple[int, Any]:
-    """(kod_http, odpowiedz). `dane` != None -> POST z JSON-em.
-
-    Ponawia 503 (kolejka do GPU) oraz 429 poza `/wgraj`, z backoffem.
-    """
-    url = bazowy_url() + sciezka
-    naglowek = klucz_api(klucz)
-    for nr in range(prob):
-        z = urllib.request.Request(url)
-        z.add_header("X-API-Key", naglowek)
-        z.add_header("User-Agent", UA)
-        if dane is not None:
-            z.add_header("Content-Type", "application/json")
-            z.data = json.dumps(dane).encode()
-        try:
-            with urllib.request.urlopen(z, timeout=limit) as o:
-                return o.status, json.loads(o.read().decode())
-        except urllib.error.HTTPError as e:
-            tresc = e.read().decode("utf-8", "replace")
+        Returns the decoded JSON body, raises :class:`ApiError` otherwise.
+        Retries 503 always and 429 everywhere except ``/wgraj`` (where the
+        cooldown is 5 minutes and waiting it out inline makes no sense).
+        """
+        last: tuple[int, Any] = (0, "no attempt made")
+        for attempt in range(self.attempts):
+            request = urllib.request.Request(self.base_url + path)
+            request.add_header("X-API-Key", self.api_key)
+            request.add_header("User-Agent", USER_AGENT)
+            if payload is not None:
+                request.add_header("Content-Type", "application/json")
+                request.data = json.dumps(payload).encode()
             try:
-                tresc = json.loads(tresc)
-            except json.JSONDecodeError:
-                pass
-            ponawialne = e.code == 503 or (e.code == 429 and sciezka != "/wgraj")
-            if not ponawialne or nr == prob - 1:
-                return e.code, tresc
-            czekaj = float(e.headers.get("Retry-After") or 0) or 0.4 * 2**nr
-            time.sleep(min(czekaj, 8.0))
-        except urllib.error.URLError as e:
-            if nr == prob - 1:
-                return 0, f"siec: {e}"
-            time.sleep(0.4 * 2**nr)
-    return 0, "wyczerpano proby"  # nieosiagalne
+                with urllib.request.urlopen(request, timeout=self.timeout) as answer:
+                    return json.loads(answer.read().decode())
+            except urllib.error.HTTPError as exc:
+                body = exc.read().decode("utf-8", "replace")
+                try:
+                    body = json.loads(body)
+                except ValueError:
+                    pass
+                last = (exc.code, body)
+                retryable = exc.code == 503 or (exc.code == 429 and path != "/wgraj")
+                if not retryable or attempt == self.attempts - 1:
+                    raise ApiError(exc.code, path, body) from exc
+                delay = float(exc.headers.get("Retry-After") or 0) or 0.4 * 2**attempt
+                time.sleep(min(delay, 8.0))
+            except urllib.error.URLError as exc:
+                last = (0, f"network: {exc}")
+                if attempt == self.attempts - 1:
+                    raise ApiError(0, path, f"network: {exc}") from exc
+                time.sleep(0.4 * 2**attempt)
+        raise ApiError(last[0], path, last[1])
 
+    # -- endpoints ---------------------------------------------------------
+    def me(self) -> dict[str, Any]:
+        """GET /me -- key state, per-minute limits, daily usage. No limit."""
+        return self.request("/me")
 
-def _wolaj_ok(sciezka: str, dane: dict[str, Any] | None = None, **kw: Any) -> Any:
-    kod, odp = wolaj(sciezka, dane, **kw)
-    if kod != 200:
-        raise BladAPI(kod, odp, sciezka)
-    return odp
+    def dziki(self) -> dict[str, Any]:
+        """GET /dziki -- the wild-type ``pks1`` promoter, 800 bp. No limit.
+
+        Keys: ``sekwencja``, ``nazwa``, ``gen``, ``genom``, ``dlugosc``,
+        ``sha256_12``.
+        """
+        return self.request("/dziki")
+
+    def sedzia(
+        self,
+        a: str,
+        b: str,
+        nazwa_a: str = "a",
+        nazwa_b: str = "b",
+    ) -> dict[str, Any]:
+        """POST /sedzia -- which of the two sequences is stronger. 600/min.
+
+        Returns ``silniejsza`` (the winner's name) and ``silniejsza_idx``
+        (0 for ``a``, 1 for ``b``).
+        """
+        return self.request(
+            "/sedzia",
+            {"a": a, "b": b, "nazwa_a": nazwa_a, "nazwa_b": nazwa_b},
+        )
+
+    def nawigator_mapa(
+        self,
+        sekwencja: str,
+        od: int = 0,
+        ile: int = SEQUENCE_LENGTH,
+    ) -> dict[str, Any]:
+        """POST /nawigator/mapa -- per-position map of the sequence. 600/min.
+
+        ``od``/``ile`` select the window. Each entry of ``pozycje`` carries
+        ``poz`` (1-based), ``wej`` (input base), ``rekon`` (1 = the position
+        is reproduced from the latent codes alone), ``warstwy`` (which of
+        L1/L2/L3 move it), ``zmien_na`` (base suggested for the strain, ``.``
+        = leave it) and ``wagaP`` (normalised gradient magnitude).
+        """
+        return self.request(
+            "/nawigator/mapa",
+            {"sekwencja": sekwencja, "od": od, "ile": ile},
+        )
+
+    def nawigator_edycje(
+        self,
+        sekwencja: str,
+        poziom: int = 2,
+        ile_kodow: int = 8,
+        opcji: int = 8,
+        ziarno: int | None = None,
+    ) -> dict[str, Any]:
+        """POST /nawigator/edycje -- variants made by editing latent codes. 600/min.
+
+        ``poziom``: 0 = L1 (50 slots, 16 bp each, alphabet 4), 1 = L2 (200
+        slots, 4 bp, alphabet 8), 2 = L3 (400 slots, 2 bp, alphabet 4).
+        ``ile_kodow`` codes are changed and ``opcji`` variants come back in
+        ``opcje``; ``ziarno`` makes the draw reproducible.
+        """
+        payload: dict[str, Any] = {
+            "sekwencja": sekwencja,
+            "poziom": poziom,
+            "ile_kodow": ile_kodow,
+            "opcji": opcji,
+        }
+        if ziarno is not None:
+            payload["ziarno"] = ziarno
+        return self.request("/nawigator/edycje", payload)
+
+    def wgraj(self, fasta: str) -> dict[str, Any]:
+        """POST /wgraj -- submit a FASTA file for scoring. Once per 5 minutes.
+
+        ``fasta`` is the whole file as one string (JSON body, not multipart).
+        The answer reports the filtering stats (``filtrowanie``) and the score
+        (``ocenionych``, ``pozycja_top10``, ``pozycja_top100``,
+        ``punkty_razem``). Only the best submission counts for the ranking.
+        """
+        if len(fasta) > MAX_FASTA_CHARS:
+            raise ValueError(
+                f"FASTA has {len(fasta)} characters, the limit is {MAX_FASTA_CHARS}"
+            )
+        return self.request("/wgraj", {"fasta": fasta})
+
+    def ranking(self) -> dict[str, Any]:
+        """GET /ranking -- the scoreboard, points only. No limit."""
+        return self.request("/ranking")
 
 
 # --------------------------------------------------------------------------
-# endpointy
+# module-level convenience wrappers over one shared client
 # --------------------------------------------------------------------------
+_CLIENT: HyppeClient | None = None
 
 
-def me(*, klucz: str | None = None) -> dict[str, Any]:
-    """`GET /me` -- stan klucza, limity, zuzycie dzienne. Bez limitu."""
-    return _wolaj_ok("/me", klucz=klucz)
+def get_client(**kwargs: Any) -> HyppeClient:
+    """Return the shared client, building it on first use.
 
-
-def dziki(*, klucz: str | None = None) -> dict[str, Any]:
-    """`GET /dziki` -- naturalny promotor `pks1`, 800 pz. Bez limitu.
-
-    Zwraca m.in. `sekwencja`, `nazwa`, `gen`, `genom`, `dlugosc`, `sha256_12`.
+    Any keyword argument (``api_key``, ``base_url``, ``timeout``,
+    ``attempts``) forces a fresh client to be built and cached.
     """
-    return _wolaj_ok("/dziki", klucz=klucz)
+    global _CLIENT
+    if _CLIENT is None or kwargs:
+        _CLIENT = HyppeClient(**kwargs)
+    return _CLIENT
 
 
-def dzika_sekwencja(*, klucz: str | None = None) -> str:
-    """Sama sekwencja z `GET /dziki`."""
-    return dziki(klucz=klucz)["sekwencja"]
+def me() -> dict[str, Any]:
+    """GET /me -- see :meth:`HyppeClient.me`."""
+    return get_client().me()
 
 
-def sedzia(
-    a: str,
-    b: str,
-    *,
-    nazwa_a: str = "a",
-    nazwa_b: str = "b",
-    klucz: str | None = None,
-) -> dict[str, Any]:
-    """`POST /sedzia` -- ktora z pary sekwencji jest silniejsza. 600/min.
-
-    Zwraca `silniejsza` (nazwa) oraz `silniejsza_idx` (0 albo 1).
-    """
-    return _wolaj_ok(
-        "/sedzia",
-        {"a": a, "b": b, "nazwa_a": nazwa_a, "nazwa_b": nazwa_b},
-        klucz=klucz,
-    )
+def dziki() -> dict[str, Any]:
+    """GET /dziki -- see :meth:`HyppeClient.dziki`."""
+    return get_client().dziki()
 
 
-def czy_b_silniejsza(a: str, b: str, **kw: Any) -> bool:
-    """True, gdy Sedzia wskazal `b`. Remis liczy sie jako False."""
-    return sedzia(a, b, **kw).get("silniejsza_idx") == 1
+def sedzia(a: str, b: str, nazwa_a: str = "a", nazwa_b: str = "b") -> dict[str, Any]:
+    """POST /sedzia -- see :meth:`HyppeClient.sedzia`."""
+    return get_client().sedzia(a, b, nazwa_a=nazwa_a, nazwa_b=nazwa_b)
 
 
 def nawigator_mapa(
-    sekwencja: str,
-    *,
-    od: int = 0,
-    ile: int = DLUGOSC_PROMOTORA,
-    klucz: str | None = None,
+    sekwencja: str, od: int = 0, ile: int = SEQUENCE_LENGTH
 ) -> dict[str, Any]:
-    """`POST /nawigator/mapa` -- opis kazdej pozycji sekwencji. 600/min.
-
-    Kluczowe pola odpowiedzi: `pozycje` (rekon, warstwy, zmien_na, wagaP),
-    `kompakt` (te same dane jako rownolegle tablice), `gatunek`,
-    `rekon_frakcja`, `zmian_pod_gatunek`, `rozklad_warstw`.
-    """
-    return _wolaj_ok(
-        "/nawigator/mapa",
-        {"sekwencja": sekwencja, "od": od, "ile": ile},
-        klucz=klucz,
-    )
+    """POST /nawigator/mapa -- see :meth:`HyppeClient.nawigator_mapa`."""
+    return get_client().nawigator_mapa(sekwencja, od=od, ile=ile)
 
 
 def nawigator_edycje(
     sekwencja: str,
-    *,
     poziom: int = 2,
     ile_kodow: int = 8,
     opcji: int = 8,
     ziarno: int | None = None,
-    klucz: str | None = None,
 ) -> dict[str, Any]:
-    """`POST /nawigator/edycje` -- warianty przez zmiane kodow latentu. 600/min.
-
-    poziom 0 = L1 (50 slotow / 16 bp / alfabet 4),
-    poziom 1 = L2 (200 / 4 / 8),
-    poziom 2 = L3 (400 / 2 / 4).
-    Zwraca `opcje` (kazda z `nr`, `sekwencja`, `zmiany`) i metadane warstwy.
-    """
-    dane: dict[str, Any] = {
-        "sekwencja": sekwencja,
-        "poziom": poziom,
-        "ile_kodow": ile_kodow,
-        "opcji": opcji,
-    }
-    if ziarno is not None:
-        dane["ziarno"] = ziarno
-    return _wolaj_ok("/nawigator/edycje", dane, klucz=klucz)
+    """POST /nawigator/edycje -- see :meth:`HyppeClient.nawigator_edycje`."""
+    return get_client().nawigator_edycje(
+        sekwencja, poziom=poziom, ile_kodow=ile_kodow, opcji=opcji, ziarno=ziarno
+    )
 
 
-def wgraj(fasta: str, *, klucz: str | None = None) -> dict[str, Any]:
-    """`POST /wgraj` -- zgloszenie pliku FASTA do oceny. Raz na 5 minut.
-
-    Zwraca `filtrowanie` (co odrzucono i dlaczego, z identyfikatorami),
-    `ocenionych`, `pozycja_top10`, `pozycja_top100`, `punkty_razem`.
-    Nie ponawia 429 -- to odstep miedzy zgloszeniami, nie przeciazenie.
-    """
-    return _wolaj_ok("/wgraj", {"fasta": fasta}, klucz=klucz)
+def wgraj(fasta: str) -> dict[str, Any]:
+    """POST /wgraj -- see :meth:`HyppeClient.wgraj`."""
+    return get_client().wgraj(fasta)
 
 
-def ranking(*, klucz: str | None = None) -> dict[str, Any]:
-    """`GET /ranking` -- tablica wynikow, tylko punkty. Bez limitu."""
-    return _wolaj_ok("/ranking", klucz=klucz)
+def ranking() -> dict[str, Any]:
+    """GET /ranking -- see :meth:`HyppeClient.ranking`."""
+    return get_client().ranking()
 
 
 # --------------------------------------------------------------------------
-# pomocnicze: FASTA i walidacja pod filtry serwera
+# helpers around the submission format
 # --------------------------------------------------------------------------
+def check_sequence(sequence: str) -> list[str]:
+    """Return the reasons the server would drop this sequence (empty = fine)."""
+    problems = []
+    if len(sequence) != SEQUENCE_LENGTH:
+        problems.append(f"length {len(sequence)} instead of {SEQUENCE_LENGTH} bp")
+    bad = sorted(set(sequence.upper()) - ALPHABET)
+    if bad:
+        problems.append("characters outside ACGTN: " + ", ".join(bad))
+    n_count = sequence.upper().count("N")
+    if n_count > MAX_N_FRACTION * len(sequence):
+        problems.append(
+            f"{n_count} N in {len(sequence)} bp, above the "
+            f"{MAX_N_FRACTION:.0%} threshold"
+        )
+    return problems
 
 
-def waliduj_sekwencje(sekwencja: str) -> list[str]:
-    """Lista powodow, dla ktorych serwer pominalby sekwencje (pusta = ok)."""
-    powody = []
-    if len(sekwencja) != DLUGOSC_PROMOTORA:
-        powody.append(f"dlugosc {len(sekwencja)} != {DLUGOSC_PROMOTORA}")
-    obce = sorted(set(sekwencja.upper()) - ZASADY)
-    if obce:
-        powody.append("znaki poza ACGTN: " + "".join(obce))
-    if sekwencja:
-        udzial_n = sekwencja.upper().count("N") / len(sekwencja)
-        if udzial_n > MAX_UDZIAL_N:
-            powody.append(f"N = {udzial_n:.1%} > {MAX_UDZIAL_N:.0%}")
-    return powody
-
-
-def zbuduj_fasta(
-    sekwencje: list[tuple[str, str]],
-    *,
-    limit: int = LIMIT_OCENIANYCH,
-    pomin_niepoprawne: bool = True,
+def build_fasta(
+    named_sequences: dict[str, str] | list[tuple[str, str]],
+    limit: int = MAX_SCORED_SEQUENCES,
+    drop_invalid: bool = True,
 ) -> str:
-    """Buduje tekst FASTA z par (nazwa, sekwencja).
+    """Render ``(name, sequence)`` pairs as a FASTA string ready for /wgraj.
 
-    Odsiewa duplikaty i -- domyslnie -- sekwencje, ktore i tak odpadlyby na
-    filtrach serwera. Przycina do `limit`, bo oceniane jest pierwsze 100.
+    Duplicate sequences and, with ``drop_invalid``, sequences the server would
+    filter out are removed; the rest is truncated to ``limit`` records, since
+    only the first 100 that pass the filters are ever scored.
     """
-    linie: list[str] = []
-    widziane: set[str] = set()
-    for nazwa, seq in sekwencje:
-        if len(linie) // 2 >= limit:
+    items = (
+        list(named_sequences.items())
+        if isinstance(named_sequences, dict)
+        else list(named_sequences)
+    )
+
+    lines: list[str] = []
+    seen: set[str] = set()
+    kept = 0
+    for name, sequence in items:
+        if kept >= limit:
             break
-        seq = seq.strip().upper()
-        if seq in widziane:
+        sequence = sequence.upper()
+        if sequence in seen:
             continue
-        if pomin_niepoprawne and waliduj_sekwencje(seq):
+        if drop_invalid and check_sequence(sequence):
             continue
-        widziane.add(seq)
-        linie += [">" + nazwa, seq]
-    return "\n".join(linie)
+        seen.add(sequence)
+        lines += [">" + str(name).split()[0], sequence]
+        kept += 1
+    return "\n".join(lines) + "\n"
 
 
-def czytaj_fasta(tekst: str) -> list[tuple[str, str]]:
-    """Parsuje tekst FASTA na liste par (nazwa, sekwencja)."""
-    rekordy: list[tuple[str, str]] = []
-    nazwa: str | None = None
-    kawalki: list[str] = []
-    for linia in tekst.splitlines():
-        linia = linia.strip()
-        if not linia:
+def parse_fasta(text: str) -> list[tuple[str, str]]:
+    """Parse FASTA text into a list of ``(name, sequence)`` pairs."""
+    records: list[tuple[str, str]] = []
+    name: str | None = None
+    chunks: list[str] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
             continue
-        if linia.startswith(">"):
-            if nazwa is not None:
-                rekordy.append((nazwa, "".join(kawalki)))
-            nazwa, kawalki = linia[1:].strip(), []
-        elif nazwa is not None:
-            kawalki.append(linia)
-    if nazwa is not None:
-        rekordy.append((nazwa, "".join(kawalki)))
-    return rekordy
+        if line.startswith(">"):
+            if name is not None:
+                records.append((name, "".join(chunks)))
+            name, chunks = line[1:].strip(), []
+        elif name is not None:
+            chunks.append(line)
+    if name is not None:
+        records.append((name, "".join(chunks)))
+    return records
 
 
-def zastosuj_rekomendacje(sekwencja: str, mapa: dict[str, Any]) -> str:
-    """Nanosi na sekwencje wszystkie `zmien_na` z odpowiedzi `/nawigator/mapa`.
+def apply_recommendations(sequence: str, mapa: dict[str, Any]) -> str:
+    """Apply every ``zmien_na`` from a ``/nawigator/mapa`` answer to a sequence.
 
-    Pozycje w odpowiedzi sa liczone od 1.
+    Positions in the answer are 1-based.
     """
-    zasady = list(sekwencja)
-    for w in mapa["pozycje"]:
-        if w["zmien_na"] != ".":
-            zasady[w["poz"] - 1] = w["zmien_na"]
-    return "".join(zasady)
+    bases = list(sequence)
+    for entry in mapa["pozycje"]:
+        if entry["zmien_na"] != ".":
+            bases[entry["poz"] - 1] = entry["zmien_na"]
+    return "".join(bases)
 
 
-def wypisz_ranking(tabela: dict[str, Any] | None = None) -> None:
-    """Wypisuje tablice wynikow w formie tabelki."""
-    t = tabela if tabela is not None else ranking()
+def is_b_stronger(a: str, b: str, **kwargs: Any) -> bool:
+    """True when the judge picks ``b`` over ``a``."""
+    return sedzia(a, b, **kwargs)["silniejsza_idx"] == 1
+
+
+def wild_sequence() -> str:
+    """Just the 800 bp wild-type ``pks1`` promoter string."""
+    return dziki()["sekwencja"]
+
+
+def print_ranking(table: dict[str, Any] | None = None) -> None:
+    """Print the scoreboard as a table; fetches it when not given one."""
+    t = table if table is not None else ranking()
     print(
-        f"druzyn {t['n_druzyn']} | startujacych {t['n_startujacych']} "
-        f"| twoja pozycja: {t['twoja_pozycja']}"
+        f"teams {t['n_druzyn']} | with a submission {t['n_startujacych']} "
+        f"| your position: {t['twoja_pozycja']}"
     )
     print()
-    naglowki = ("poz", "druzyna", "ocen", "TOP10", "TOP100", "razem", "wgranie")
     print(
-        f"{naglowki[0]:<4} {naglowki[1]:<13} {naglowki[2]:<6} {naglowki[3]:<8} "
-        f"{naglowki[4]:<9} {naglowki[5]:<7} {naglowki[6]}"
+        f"{'pos':<4} {'team':<13} {'scored':<7} {'TOP10':<8} "
+        f"{'TOP100':<9} {'total':<7} {'uploaded'}"
     )
     print("-" * 74)
-    for x in t["ranking"]:
+    for row in t["ranking"]:
         print(
-            f"{x['pozycja']:<4} {x['druzyna']:<13} {x['ocenionych']:<6} "
-            f"{x['punkty_top10']:<8} {x['punkty_top100']:<9} "
-            f"{x['punkty_razem']:<7} {x['wgranie_o'] or '-'}"
+            f"{row['pozycja']:<4} {row['druzyna']:<13} {row['ocenionych']:<7} "
+            f"{row['punkty_top10']:<8} {row['punkty_top100']:<9} "
+            f"{row['punkty_razem']:<7} {row['wgranie_o'] or '-'}"
         )
+
+
+if __name__ == "__main__":
+    account = me()
+    print("team      :", account["druzyna"], "|", account["uczestnik"])
+    print("limits/min:", account["limity_na_minute"])
+    print("upload in :", account["zgloszenie_mozliwe_za_s"], "s")
+
+    wild = dziki()
+    print(
+        f"wild type : {wild['nazwa']} | gene {wild['gen']} "
+        f"| {wild['genom']} | {wild['dlugosc']} bp"
+    )
